@@ -1,0 +1,33 @@
+data:
+  taxi_type: yellow
+  months: ["2020-01", "2020-02", "2020-03", "2020-04"]
+  n_zones: 20
+
+forecast:
+  timezone: America/New_York
+  horizon_hours: 1
+
+# Boundaries are New York local midnight.
+# Starts are inclusive; ends are exclusive.
+periods:
+  warmup:
+    start: "2020-01-01"
+    end: "2020-01-08"
+  train:
+    start: "2020-01-08"
+    end: "2020-02-03"
+  calibration:
+    start: "2020-02-03"
+    end: "2020-02-17"
+  test:
+    start: "2020-02-17"
+    end: "2020-03-01"
+  replay:
+    start: "2020-03-01"
+    end: "2020-05-01"
+
+features:
+  lags_hours: [1, 2, 3, 24, 168]
+  rolling_windows_hours: [3, 24, 168]
+
+random_seed: 42
