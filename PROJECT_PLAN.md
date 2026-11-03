@@ -10,6 +10,8 @@ Build a reproducible local system that forecasts next-hour yellow-taxi pickups f
 
 The deliverable must answer: What is deployed? Which code and data produced it? Is the service healthy? Are its inputs changing? Does it still predict adequately? What happens after an alert? Can the previous release actually be restored?
 
+Team collaboration requirement: maintain the project in a private shared GitHub repository, initially `avakof/nyc-taxi-mlops`, with teammate access and a documented branch/pull-request review workflow. Each teammate recreates a local environment from the committed files. Later DVC and MLflow milestones must provide team-accessible artifact storage; GitHub synchronization alone does not share local data caches or tracking servers.
+
 **PHASE 2 — ADVERSARIAL AUDIT**
 
 The course provides useful teaching patterns, but its exercises are not a complete implementation of this assignment. Specific corrections:
