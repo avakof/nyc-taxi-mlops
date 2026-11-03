@@ -3,7 +3,9 @@ name = "taxi-mlops"
 version = "0.1.0"
 description = "Reproducible NYC taxi-demand forecasting system"
 requires-python = ">=3.12,<3.13"
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0.3",
+]
 
 [dependency-groups]
 dev = [
