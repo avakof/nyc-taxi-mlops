@@ -35,7 +35,7 @@ Expected Python version: `3.12.14`. Package versions come from the committed `uv
 
 ## Work as a team
 
-Use a short-lived branch for each task, push the branch, open a pull request, and ask a teammate to review it before merging into `main`. The detailed workflow is in [CONTRIBUTING.md](CONTRIBUTING.md). Track work through GitHub Issues and reference the corresponding project milestone.
+Group several related lessons and tasks on one milestone branch. Commit small completed changes and push progress regularly. Open one pull request and request teammate approval when the milestone's deliverables work together and its checks pass. Keep using the same branch between lessons. The review batches and detailed workflow are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 This is the team's contribution policy. Enforced branch rules and automated CI checks will be added and documented when configured.
 

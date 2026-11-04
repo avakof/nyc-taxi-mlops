@@ -12,6 +12,8 @@ The deliverable must answer: What is deployed? Which code and data produced it? 
 
 Team collaboration requirement: maintain the project in a private shared GitHub repository, initially `avakof/nyc-taxi-mlops`, with teammate access and a documented branch/pull-request review workflow. Each teammate recreates a local environment from the committed files. Later DVC and MLflow milestones must provide team-accessible artifact storage; GitHub synchronization alone does not share local data caches or tracking servers.
 
+Review cadence updated at the user's request on 2026-11-04: group multiple lessons and implementation checkpoints on a milestone branch. Commit small changes and push progress regularly. Open a pull request and obtain contributor review when a substantial milestone is complete, rather than after every lesson. The review batches are data foundation, training/tracking, serving, monitoring, and recovery. Continue teaching and local checks between review points; the detailed plan milestones remain implementation checkpoints within those batches.
+
 **PHASE 2 — ADVERSARIAL AUDIT**
 
 The course provides useful teaching patterns, but its exercises are not a complete implementation of this assignment. Specific corrections:
