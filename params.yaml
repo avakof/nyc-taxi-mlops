@@ -2,6 +2,12 @@ data:
   taxi_type: yellow
   months: ["2020-01", "2020-02", "2020-03", "2020-04"]
   n_zones: 20
+  source:
+    citation: "NYC Taxi and Limousine Commission (TLC) Trip Record Data"
+    info_page: "https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page"
+    base_url: "https://d37ci6vzurychx.cloudfront.net"
+    trip_data_path: "trip-data/{taxi_type}_tripdata_{month}.parquet"
+    zone_lookup_path: "misc/taxi_zone_lookup.csv"
 
 forecast:
   timezone: America/New_York

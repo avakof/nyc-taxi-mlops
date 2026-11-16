@@ -1,0 +1,122 @@
+[
+  {
+    "zone_id": 237,
+    "pickups_train": 255746,
+    "name": "Upper East Side South",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 161,
+    "pickups_train": 243676,
+    "name": "Midtown Center",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 236,
+    "pickups_train": 238447,
+    "name": "Upper East Side North",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 162,
+    "pickups_train": 205251,
+    "name": "Midtown East",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 230,
+    "pickups_train": 197030,
+    "name": "Times Sq/Theatre District",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 186,
+    "pickups_train": 196921,
+    "name": "Penn Station/Madison Sq West",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 132,
+    "pickups_train": 173310,
+    "name": "JFK Airport",
+    "borough": "Queens"
+  },
+  {
+    "zone_id": 170,
+    "pickups_train": 169376,
+    "name": "Murray Hill",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 142,
+    "pickups_train": 167774,
+    "name": "Lincoln Square East",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 48,
+    "pickups_train": 167278,
+    "name": "Clinton East",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 234,
+    "pickups_train": 166988,
+    "name": "Union Sq",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 163,
+    "pickups_train": 152845,
+    "name": "Midtown North",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 239,
+    "pickups_train": 150363,
+    "name": "Upper West Side South",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 79,
+    "pickups_train": 142587,
+    "name": "East Village",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 141,
+    "pickups_train": 137969,
+    "name": "Lenox Hill West",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 68,
+    "pickups_train": 131671,
+    "name": "East Chelsea",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 107,
+    "pickups_train": 125811,
+    "name": "Gramercy",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 164,
+    "pickups_train": 122933,
+    "name": "Midtown South",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 238,
+    "pickups_train": 116913,
+    "name": "Upper West Side North",
+    "borough": "Manhattan"
+  },
+  {
+    "zone_id": 249,
+    "pickups_train": 111011,
+    "name": "West Village",
+    "borough": "Manhattan"
+  }
+]
