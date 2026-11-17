@@ -1,0 +1,46 @@
+{
+  "citation": "NYC Taxi and Limousine Commission (TLC) Trip Record Data",
+  "info_page": "https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page",
+  "files": [
+    {
+      "url": "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv",
+      "file": "data/external/taxi_zone_lookup.csv",
+      "downloaded_at": "2026-11-16T21:14:57.689907+00:00",
+      "size_bytes": 12331,
+      "sha256": "1a99e105092230f8620f301edcca7f80d3080642ff404d28ed957d3fa222c8ed",
+      "citation": "NYC Taxi and Limousine Commission (TLC) Trip Record Data"
+    },
+    {
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2020-01.parquet",
+      "file": "data/raw/yellow_tripdata_2020-01.parquet",
+      "downloaded_at": "2026-11-16T21:14:57.689907+00:00",
+      "size_bytes": 93562858,
+      "sha256": "0c32c1d5ef0d37ac3ff1a3f1880f247cc40165edf18626e5a86866296a4a5b93",
+      "citation": "NYC Taxi and Limousine Commission (TLC) Trip Record Data"
+    },
+    {
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2020-02.parquet",
+      "file": "data/raw/yellow_tripdata_2020-02.parquet",
+      "downloaded_at": "2026-11-16T21:14:57.747751+00:00",
+      "size_bytes": 92134881,
+      "sha256": "e57df0e7c410c02d78cd59a31394a118f3d92c50560a2d8fa3a2bf5e17dcffaa",
+      "citation": "NYC Taxi and Limousine Commission (TLC) Trip Record Data"
+    },
+    {
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2020-03.parquet",
+      "file": "data/raw/yellow_tripdata_2020-03.parquet",
+      "downloaded_at": "2026-11-16T21:19:58.460058+00:00",
+      "size_bytes": 44442590,
+      "sha256": "6fa1343946bc1e3702fc351ff9818787cc40e4cf2b095d947ff5e452b5b42f84",
+      "citation": "NYC Taxi and Limousine Commission (TLC) Trip Record Data"
+    },
+    {
+      "url": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2020-04.parquet",
+      "file": "data/raw/yellow_tripdata_2020-04.parquet",
+      "downloaded_at": "2026-11-16T21:20:11.581590+00:00",
+      "size_bytes": 4442620,
+      "sha256": "3104e1e5548ade630988a4a8b9ec76c51a057b88159f78676c7d344f48491450",
+      "citation": "NYC Taxi and Limousine Commission (TLC) Trip Record Data"
+    }
+  ]
+}

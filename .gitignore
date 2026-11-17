@@ -1,5 +1,6 @@
 # Course reference files
 /course/
+/course_content/
 
 # Local secrets; keep the shareable example
 .env
@@ -8,6 +9,7 @@
 
 # Python environment and caches
 .venv/
+.venv-wsl/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -18,10 +20,15 @@ __pycache__/
 *.joblib
 *.pkl
 *.skops
+/data/external/*.csv
 
 # Local MLflow state
 mlruns/
 mlartifacts/
+mlflow-server.log
+
+# Generated reports (duplicated in MLflow's own artifact store; regenerated on every run)
+/reports/
 
 # Runtime databases and companion files
 *.db
