@@ -1,0 +1,16 @@
+{
+  "champion_version": "1",
+  "candidate_version": "2",
+  "champion_mae": 47.86923076923077,
+  "candidate_mae": 27.709791948364373,
+  "champion_wape": 0.17472831777548736,
+  "candidate_wape": 0.10114399699438191,
+  "mae_improvement_pct": 42.11356334103537,
+  "mae_gate_pass": true,
+  "wape_gate_pass": true,
+  "zone_regression_gate_pass": true,
+  "worst_zone_regression_pct": -22.10593817395258,
+  "coverage_pass": true,
+  "coverage_pct": 100.0,
+  "overall_pass": true
+}

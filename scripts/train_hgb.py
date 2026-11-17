@@ -77,7 +77,7 @@ def main() -> None:
 
     REPORTS_DIR.mkdir(exist_ok=True)
 
-    with mlflow.start_run(run_name=tracking.run_name(MODEL_TYPE, "train_eval")):
+    with mlflow.start_run(run_name=tracking.run_name(MODEL_TYPE, "candidate_shap-permutation")):
         mlflow.log_params(
             {
                 tracking.PARAM_MODEL_TYPE: MODEL_TYPE,
