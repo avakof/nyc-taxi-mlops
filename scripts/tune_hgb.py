@@ -49,7 +49,9 @@ def main() -> None:
     seed = params["random_seed"]
     zone_ids = load_selected_zone_ids()
 
-    zone_hour = pd.read_parquet(ROOT / "data" / "processed" / "zone_hour_counts.parquet")
+    zone_hour = pd.read_parquet(
+        ROOT / "data" / "processed" / "zone_hour_counts.parquet"
+    )
     zone_hour = zone_hour[zone_hour.zone_id.isin(zone_ids)]
     feature_table = build_feature_table(zone_hour, params)
 
@@ -59,7 +61,10 @@ def main() -> None:
     X_train, y_train = train[cols], train["target"]
     X_cal, y_cal = calibration[cols], calibration["target"]
 
-    combos = [dict(zip(GRID.keys(), values, strict=True)) for values in itertools.product(*GRID.values())]
+    combos = [
+        dict(zip(GRID.keys(), values, strict=True))
+        for values in itertools.product(*GRID.values())
+    ]
     results = []
 
     with mlflow.start_run(run_name="hgb_tuning"):
@@ -69,23 +74,34 @@ def main() -> None:
                     loss="poisson",
                     random_state=seed,
                     categorical_features="from_dtype",
+                    # early_stopping="auto" (the default) silently activates above 10k
+                    # samples and validates on a RANDOM internal split -- violates the
+                    # chronological-only-split rule. max_iter is already tuned externally
+                    # against the calibration period, which is the correct place for this.
+                    early_stopping=False,
                     **hp,
                 )
                 model.fit(X_train, y_train)
                 mae = mean_absolute_error(y_cal, model.predict(X_cal))
 
-                mlflow.log_params({**hp, tracking.PARAM_MODEL_TYPE: "hgb", tracking.PARAM_SEED: seed})
+                mlflow.log_params(
+                    {**hp, tracking.PARAM_MODEL_TYPE: "hgb", tracking.PARAM_SEED: seed}
+                )
                 mlflow.log_metric(tracking.mae_key("calibration"), mae)
                 results.append({**hp, "calibration_mae": mae})
                 print(f"trial {i}: {hp} -> calibration MAE {mae:.3f}")
 
         best = min(results, key=lambda r: r["calibration_mae"])
-        mlflow.log_dict({"grid": GRID, "results": results, "best": best}, "tuning_results.json")
+        mlflow.log_dict(
+            {"grid": GRID, "results": results, "best": best}, "tuning_results.json"
+        )
 
     best_params = {k: v for k, v in best.items() if k != "calibration_mae"}
     config_dir = ROOT / "config"
     config_dir.mkdir(exist_ok=True)
-    (config_dir / "hgb_best_params.json").write_text(json.dumps(best_params, indent=2) + "\n")
+    (config_dir / "hgb_best_params.json").write_text(
+        json.dumps(best_params, indent=2) + "\n"
+    )
     print(f"best: {best}")
 
 

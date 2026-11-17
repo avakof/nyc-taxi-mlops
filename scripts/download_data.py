@@ -75,7 +75,11 @@ def build_entry(url: str, dest: Path, citation: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--force", action="store_true", help="re-download even if the file already exists")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="re-download even if the file already exists",
+    )
     parser.add_argument(
         "--accept-change",
         action="store_true",
@@ -90,12 +94,24 @@ def main() -> None:
     base_url = source["base_url"]
     citation = source["citation"]
 
-    existing_manifest = json.loads(MANIFEST_PATH.read_text()) if MANIFEST_PATH.exists() else {}
+    existing_manifest = (
+        json.loads(MANIFEST_PATH.read_text()) if MANIFEST_PATH.exists() else {}
+    )
 
-    targets = [(f"{base_url}/{source['zone_lookup_path']}", EXTERNAL_DIR / "taxi_zone_lookup.csv")]
+    targets = [
+        (
+            f"{base_url}/{source['zone_lookup_path']}",
+            EXTERNAL_DIR / "taxi_zone_lookup.csv",
+        )
+    ]
     for month in data_cfg["months"]:
         trip_path = source["trip_data_path"].format(taxi_type=taxi_type, month=month)
-        targets.append((f"{base_url}/{trip_path}", RAW_DIR / f"{taxi_type}_tripdata_{month}.parquet"))
+        targets.append(
+            (
+                f"{base_url}/{trip_path}",
+                RAW_DIR / f"{taxi_type}_tripdata_{month}.parquet",
+            )
+        )
 
     entries = []
     for url, dest in targets:
@@ -109,7 +125,11 @@ def main() -> None:
             )
         entries.append(entry)
 
-    manifest = {"citation": citation, "info_page": source["info_page"], "files": entries}
+    manifest = {
+        "citation": citation,
+        "info_page": source["info_page"],
+        "files": entries,
+    }
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2) + "\n")
     print(f"manifest written to {relative(MANIFEST_PATH)}")
 

@@ -30,7 +30,9 @@ def needed_months(params: dict) -> list[str]:
     return [str(p) for p in pd.period_range(start, end, freq="M")]
 
 
-def clean_trips(trips: pd.DataFrame, warmup_start_utc: pd.Timestamp, test_end_utc: pd.Timestamp) -> pd.DataFrame:
+def clean_trips(
+    trips: pd.DataFrame, warmup_start_utc: pd.Timestamp, test_end_utc: pd.Timestamp
+) -> pd.DataFrame:
     """Pure quarantine step: drop placeholder zones, DST-invalid timestamps, and rows outside
     the covered window. trips needs columns tpep_pickup_datetime (naive, NYC local wall time
     per the documented assumption) and PULocationID. Returns columns PULocationID, hour_utc.
@@ -41,9 +43,13 @@ def clean_trips(trips: pd.DataFrame, warmup_start_utc: pd.Timestamp, test_end_ut
 
     # Quarantine anything that doesn't localize cleanly: nonexistent (spring-forward gap,
     # e.g. 2020-03-08) or ambiguous (fall-back) local times, rather than guessing.
-    local = trips.tpep_pickup_datetime.dt.tz_localize(NY, nonexistent="NaT", ambiguous="NaT")
+    local = trips.tpep_pickup_datetime.dt.tz_localize(
+        NY, nonexistent="NaT", ambiguous="NaT"
+    )
     dst_quarantined = int(local.isna().sum())
-    trips = trips.assign(pickup_utc=local.dt.tz_convert("UTC")).dropna(subset=["pickup_utc"])
+    trips = trips.assign(pickup_utc=local.dt.tz_convert("UTC")).dropna(
+        subset=["pickup_utc"]
+    )
 
     # Quarantine rows whose pickup time falls outside the covered window -- TLC files contain
     # a small number of data-entry errors (timestamps years off), found during EDA.
@@ -66,7 +72,10 @@ def load_raw_pickups(params: dict) -> pd.DataFrame:
     test_end_utc = pd.Timestamp(periods["test"]["end"], tz=NY).tz_convert("UTC")
 
     frames = [
-        pd.read_parquet(RAW_DIR / f"{taxi_type}_tripdata_{month}.parquet", columns=["tpep_pickup_datetime", "PULocationID"])
+        pd.read_parquet(
+            RAW_DIR / f"{taxi_type}_tripdata_{month}.parquet",
+            columns=["tpep_pickup_datetime", "PULocationID"],
+        )
         for month in needed_months(params)
     ]
     trips = pd.concat(frames, ignore_index=True)
@@ -80,10 +89,14 @@ def to_zone_hour_counts(trips: pd.DataFrame, params: dict) -> pd.DataFrame:
 
     zones = pd.read_csv(ROOT / "data" / "external" / "taxi_zone_lookup.csv")
     zone_ids = sorted(set(zones.LocationID) - PLACEHOLDER_ZONES)
-    all_hours = pd.date_range(warmup_start_utc, test_end_utc, freq="h", inclusive="left")
+    all_hours = pd.date_range(
+        warmup_start_utc, test_end_utc, freq="h", inclusive="left"
+    )
 
     counts = trips.groupby(["PULocationID", "hour_utc"]).size()
-    full_index = pd.MultiIndex.from_product([zone_ids, all_hours], names=["zone_id", "hour_utc"])
+    full_index = pd.MultiIndex.from_product(
+        [zone_ids, all_hours], names=["zone_id", "hour_utc"]
+    )
     zone_hour = counts.reindex(full_index, fill_value=0).rename("pickups").reset_index()
     return zone_hour
 
@@ -114,7 +127,9 @@ def main() -> None:
     for name, df in split_by_period(zone_hour, params).items():
         path = PROCESSED_DIR / f"{name}.parquet"
         df.to_parquet(path, index=False)
-        print(f"wrote {path.relative_to(ROOT)}: {len(df)} rows, {df.hour_utc.min()} to {df.hour_utc.max()}")
+        print(
+            f"wrote {path.relative_to(ROOT)}: {len(df)} rows, {df.hour_utc.min()} to {df.hour_utc.max()}"
+        )
 
 
 if __name__ == "__main__":

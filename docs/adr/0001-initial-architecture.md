@@ -23,6 +23,8 @@ Baseline design decisions made together before implementation. Later decisions (
 **Decision:** chronological split only — train → calibration → test, then Mar–Apr 2020 as the drift/replay period. See adversarial-audit corrections in [../COURSE_REVIEW.md](../COURSE_REVIEW.md).
 **Consequences:** every evaluation must use timestamp cutoffs, never row position, even when stacking zones.
 
+**Correction (PR #2 review, Ali):** `HistGradientBoostingRegressor`'s `early_stopping` was left at its default (`"auto"`), which silently activates above 10k training samples (ours: 12,480 rows) and validates internally on a **randomly shuffled** split — violating this exact chronological-only rule, undetected until external review. Fixed: `early_stopping=False` in both `scripts/tune_hgb.py` and `scripts/train_hgb.py`; redundant anyway since `max_iter` is already tuned externally against the calibration period. Retrained: test MAE 27.44 (was 27.71), promotion gates still pass (42.7% improvement over champion). The outer train/calibration/test split itself was never wrong — only this one model's internal training mechanics were.
+
 ## Modeling
 
 **Context:** project is graded on operation, not model quality ("a simple model that's well operated beats a brilliant model nobody can reproduce").

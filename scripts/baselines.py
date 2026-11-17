@@ -55,24 +55,35 @@ def compute_metrics(actual: pd.Series, predicted: pd.Series) -> dict:
     return {"mae": mae, "rmse": rmse, "wape": wape, "total_actual": total_actual}
 
 
-def evaluate_split(predicted_full: pd.DataFrame, split_df: pd.DataFrame, zone_ids: list[int]) -> dict:
+def evaluate_split(
+    predicted_full: pd.DataFrame, split_df: pd.DataFrame, zone_ids: list[int]
+) -> dict:
     merged = split_df.merge(
-        predicted_full[["zone_id", "hour_utc", "prediction"]], on=["zone_id", "hour_utc"], how="left"
+        predicted_full[["zone_id", "hour_utc", "prediction"]],
+        on=["zone_id", "hour_utc"],
+        how="left",
     )
-    merged = merged[merged.zone_id.isin(zone_ids)].dropna(subset=["prediction"])
+    merged = merged[merged.zone_id.isin(zone_ids)]
+    # Count missing predictions BEFORE dropping them -- a matched key with a NaN prediction
+    # (e.g. not enough history yet for this zone-hour's lag) must not disappear uncounted.
+    rows_missing_prediction = int(merged.prediction.isna().sum())
+    merged = merged.dropna(subset=["prediction"])
 
     overall = compute_metrics(merged.pickups, merged.prediction)
 
     by_zone = (
         merged.groupby("zone_id")
-        .apply(lambda g: compute_metrics(g.pickups, g.prediction)["mae"], include_groups=False)
+        .apply(
+            lambda g: compute_metrics(g.pickups, g.prediction)["mae"],
+            include_groups=False,
+        )
         .sort_values(ascending=False)
     )
     overall["worst_zone_id"] = int(by_zone.index[0])
     overall["worst_zone_mae"] = float(by_zone.iloc[0])
     overall["by_zone_mae"] = {int(k): float(v) for k, v in by_zone.items()}
     overall["rows_evaluated"] = int(len(merged))
-    overall["rows_missing_prediction"] = int(len(split_df.merge(predicted_full[["zone_id", "hour_utc"]], on=["zone_id", "hour_utc"], how="left", indicator=True).query("_merge == 'left_only'")))
+    overall["rows_missing_prediction"] = rows_missing_prediction
     return overall
 
 
@@ -91,7 +102,9 @@ def main() -> None:
     for model_type, lag_hours in BASELINES.items():
         predicted_full = predictions_for_lag(zone_hour, lag_hours)
 
-        with mlflow.start_run(run_name=tracking.run_name(model_type, "calibration_test")):
+        with mlflow.start_run(
+            run_name=tracking.run_name(model_type, "calibration_test")
+        ):
             mlflow.log_params(
                 {
                     tracking.PARAM_MODEL_TYPE: model_type,
@@ -104,7 +117,9 @@ def main() -> None:
                 {
                     tracking.TAG_GIT_COMMIT: tracking.git_commit(),
                     tracking.TAG_GIT_DIRTY: str(tracking.git_dirty()),
-                    tracking.TAG_DATA_MANIFEST_SHA256: tracking.data_manifest_sha256(ROOT / "data" / "manifest.json"),
+                    tracking.TAG_DATA_MANIFEST_SHA256: tracking.data_manifest_sha256(
+                        ROOT / "data" / "manifest.json"
+                    ),
                     tracking.TAG_SCENARIO: tracking.SCENARIO_HEALTHY,
                 }
             )
@@ -116,15 +131,23 @@ def main() -> None:
                     {
                         tracking.mae_key(split_name): result["mae"],
                         tracking.rmse_key(split_name): result["rmse"],
-                        tracking.worst_zone_mae_key(split_name): result["worst_zone_mae"],
+                        tracking.worst_zone_mae_key(split_name): result[
+                            "worst_zone_mae"
+                        ],
                     }
                 )
                 if result["wape"] is not None:
                     mlflow.log_metric(tracking.wape_key(split_name), result["wape"])
-                mlflow.set_tag(tracking.worst_zone_tag(split_name), result["worst_zone_id"])
+                mlflow.set_tag(
+                    tracking.worst_zone_tag(split_name), result["worst_zone_id"]
+                )
 
-                report_path = REPORTS_DIR / f"{model_type}_{split_name}_metrics_by_zone.json"
-                report_path.write_text(json.dumps(result["by_zone_mae"], indent=2) + "\n")
+                report_path = (
+                    REPORTS_DIR / f"{model_type}_{split_name}_metrics_by_zone.json"
+                )
+                report_path.write_text(
+                    json.dumps(result["by_zone_mae"], indent=2) + "\n"
+                )
                 mlflow.log_artifact(str(report_path))
 
                 print(

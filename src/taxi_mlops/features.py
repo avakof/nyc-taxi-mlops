@@ -43,7 +43,10 @@ def build_feature_table(zone_hour: pd.DataFrame, params: dict) -> pd.DataFrame:
     df["_shifted_1"] = by_zone.shift(1)
     for window in windows:
         df[f"roll_{window}"] = (
-            df.groupby("zone_id")["_shifted_1"].rolling(window).mean().reset_index(level=0, drop=True)
+            df.groupby("zone_id")["_shifted_1"]
+            .rolling(window)
+            .mean()
+            .reset_index(level=0, drop=True)
         )
     df = df.drop(columns="_shifted_1")
 
@@ -59,8 +62,12 @@ def build_feature_table(zone_hour: pd.DataFrame, params: dict) -> pd.DataFrame:
     return df[["hour_utc", "target"] + cols].reset_index(drop=True)
 
 
-def split_by_period(feature_table: pd.DataFrame, params: dict, period_name: str) -> pd.DataFrame:
-    start = pd.Timestamp(params["periods"][period_name]["start"], tz=NY).tz_convert("UTC")
+def split_by_period(
+    feature_table: pd.DataFrame, params: dict, period_name: str
+) -> pd.DataFrame:
+    start = pd.Timestamp(params["periods"][period_name]["start"], tz=NY).tz_convert(
+        "UTC"
+    )
     end = pd.Timestamp(params["periods"][period_name]["end"], tz=NY).tz_convert("UTC")
     mask = (feature_table.hour_utc >= start) & (feature_table.hour_utc < end)
     return feature_table.loc[mask].reset_index(drop=True)

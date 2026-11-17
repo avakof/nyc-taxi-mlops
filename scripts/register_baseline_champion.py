@@ -30,6 +30,7 @@ from mlflow.models import infer_signature
 
 from taxi_mlops import tracking
 from taxi_mlops.config import load_params
+from taxi_mlops.registry import assert_valid_predictions
 
 ROOT = Path(__file__).resolve().parents[1]
 PROCESSED_DIR = ROOT / "data" / "processed"
@@ -72,15 +73,21 @@ def main() -> None:
     params = load_params()
     df = build_lag_168_table(params)
 
-    test_start = pd.Timestamp(params["periods"]["test"]["start"], tz="America/New_York").tz_convert("UTC")
-    test_end = pd.Timestamp(params["periods"]["test"]["end"], tz="America/New_York").tz_convert("UTC")
+    test_start = pd.Timestamp(
+        params["periods"]["test"]["start"], tz="America/New_York"
+    ).tz_convert("UTC")
+    test_end = pd.Timestamp(
+        params["periods"]["test"]["end"], tz="America/New_York"
+    ).tz_convert("UTC")
     test = df[(df.hour_utc >= test_start) & (df.hour_utc < test_end)]
 
     model = PrevWeekBaseline()
     sample_input = test[["lag_168"]].head(5)
     signature = infer_signature(sample_input, model.predict(None, sample_input))
 
-    with mlflow.start_run(run_name=tracking.run_name(MODEL_TYPE, "champion_bootstrap")) as run:
+    with mlflow.start_run(
+        run_name=tracking.run_name(MODEL_TYPE, "champion_bootstrap")
+    ) as run:
         mlflow.set_tags(
             {
                 tracking.TAG_GIT_COMMIT: tracking.git_commit(),
@@ -88,8 +95,15 @@ def main() -> None:
                 tracking.TAG_SCENARIO: tracking.SCENARIO_HEALTHY,
             }
         )
-        mlflow.log_params({tracking.PARAM_MODEL_TYPE: MODEL_TYPE, "lag_hours": LAG_HOURS})
-        mlflow.pyfunc.log_model(python_model=model, name="model", signature=signature, input_example=sample_input)
+        mlflow.log_params(
+            {tracking.PARAM_MODEL_TYPE: MODEL_TYPE, "lag_hours": LAG_HOURS}
+        )
+        mlflow.pyfunc.log_model(
+            python_model=model,
+            name="model",
+            signature=signature,
+            input_example=sample_input,
+        )
         run_id = run.info.run_id
 
     version = mlflow.register_model(model_uri=f"runs:/{run_id}/model", name=model_name)
@@ -99,8 +113,10 @@ def main() -> None:
 
     # Resolve once, load the immutable numeric version (not re-resolving @champion), verify it.
     loaded = mlflow.pyfunc.load_model(f"models:/{model_name}/{version.version}")
-    pred = loaded.predict(test[["lag_168"]].head(3))
-    print(f"smoke prediction OK: {pred.tolist()}")
+    sample = test[["lag_168"]].head(3)
+    pred = loaded.predict(sample)
+    assert_valid_predictions(pred, expected_length=len(sample))
+    print(f"smoke prediction OK: {list(pred)}")
 
 
 if __name__ == "__main__":

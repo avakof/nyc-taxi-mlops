@@ -12,6 +12,15 @@ The repository is private. Accept the GitHub collaborator invitation before clon
 
 Prerequisites: Git and [uv](https://docs.astral.sh/uv/). The project selects Python 3.12.14; uv can install it.
 
+**Intel Mac only:** `cryptography` (pulled in transitively by DVC's `scmrepo`) has no prebuilt wheel for macOS x86_64 above version 42 — `uv sync` will build it from source, which needs OpenSSL dev headers and `pkg-config`:
+
+```bash
+brew install openssl@3 pkg-config
+export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig"
+```
+
+Apple Silicon Macs, Linux, and Windows are unaffected (wheels exist).
+
 ```bash
 git clone https://github.com/avakof/nyc-taxi-mlops.git
 cd nyc-taxi-mlops

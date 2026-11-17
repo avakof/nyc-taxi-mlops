@@ -27,7 +27,9 @@ def main() -> None:
     totals = train.groupby("zone_id").pickups.sum().sort_values(ascending=False)
     selected = totals.head(n_zones)
 
-    zones = pd.read_csv(ROOT / "data" / "external" / "taxi_zone_lookup.csv").set_index("LocationID")
+    zones = pd.read_csv(ROOT / "data" / "external" / "taxi_zone_lookup.csv").set_index(
+        "LocationID"
+    )
     out = [
         {
             "zone_id": int(zid),

@@ -15,8 +15,12 @@ PARAMS = {"features": {"lags_hours": [1, 2], "rolling_windows_hours": [2]}}
 @pytest.fixture
 def zone_hour() -> pd.DataFrame:
     hours = pd.date_range("2020-01-01 00:00", periods=10, freq="h", tz="UTC")
-    zone_a = pd.DataFrame({"zone_id": "A", "hour_utc": hours, "pickups": range(0, 100, 10)})
-    zone_b = pd.DataFrame({"zone_id": "B", "hour_utc": hours, "pickups": range(0, 50, 5)})
+    zone_a = pd.DataFrame(
+        {"zone_id": "A", "hour_utc": hours, "pickups": range(0, 100, 10)}
+    )
+    zone_b = pd.DataFrame(
+        {"zone_id": "B", "hour_utc": hours, "pickups": range(0, 50, 5)}
+    )
     return pd.concat([zone_a, zone_b], ignore_index=True)
 
 

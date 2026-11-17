@@ -25,6 +25,7 @@ from mlflow import MlflowClient
 
 from taxi_mlops.config import load_params
 from taxi_mlops.features import build_feature_table, feature_columns, split_by_period
+from taxi_mlops.registry import assert_valid_predictions
 
 ROOT = Path(__file__).resolve().parents[1]
 ALIAS = "candidate"
@@ -35,8 +36,13 @@ def smoke_predict(model_name: str, version: str) -> None:
     model = mlflow.sklearn.load_model(f"models:/{model_name}/{version}")
 
     params = load_params()
-    zone_ids = [z["zone_id"] for z in json.loads((ROOT / "config" / "selected_zones.json").read_text())]
-    zone_hour = pd.read_parquet(ROOT / "data" / "processed" / "zone_hour_counts.parquet")
+    zone_ids = [
+        z["zone_id"]
+        for z in json.loads((ROOT / "config" / "selected_zones.json").read_text())
+    ]
+    zone_hour = pd.read_parquet(
+        ROOT / "data" / "processed" / "zone_hour_counts.parquet"
+    )
     zone_hour = zone_hour[zone_hour.zone_id.isin(zone_ids)]
     feature_table = build_feature_table(zone_hour, params)
     test = split_by_period(feature_table, params, "test")
@@ -44,9 +50,9 @@ def smoke_predict(model_name: str, version: str) -> None:
 
     sample = test[cols].head(3)
     pred = model.predict(sample)
-    print(f"smoke prediction OK: {pred.tolist()} (nonnegative finite: {bool((pred >= 0).all())})")
-    if not (pred >= 0).all():
-        raise SystemExit("smoke check failed: model produced a negative prediction")
+    # pred >= 0 alone is true for +inf too -- check length and finiteness explicitly.
+    assert_valid_predictions(pred, expected_length=len(sample))
+    print(f"smoke prediction OK: {list(pred)}")
 
 
 def main() -> None:

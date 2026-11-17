@@ -47,7 +47,9 @@ def main() -> None:
 
     params = load_params()
     zone_ids = load_selected_zone_ids()
-    zone_hour = pd.read_parquet(ROOT / "data" / "processed" / "zone_hour_counts.parquet")
+    zone_hour = pd.read_parquet(
+        ROOT / "data" / "processed" / "zone_hour_counts.parquet"
+    )
     zone_hour = zone_hour[zone_hour.zone_id.isin(zone_ids)]
     feature_table = build_feature_table(zone_hour, params)
     test = split_by_period(feature_table, params, "test")
@@ -68,8 +70,12 @@ def main() -> None:
     # enforcement rejects the zone_id category dtype (recorded as plain "long" in the
     # signature), even though the values are identical -- a schema-validation quirk, not
     # a real data problem. mlflow.sklearn.load_model bypasses that layer entirely.
-    champion = mlflow.pyfunc.load_model(f"models:/{model_name}/{champion_version.version}")
-    candidate = mlflow.sklearn.load_model(f"models:/{model_name}/{candidate_version.version}")
+    champion = mlflow.pyfunc.load_model(
+        f"models:/{model_name}/{champion_version.version}"
+    )
+    candidate = mlflow.sklearn.load_model(
+        f"models:/{model_name}/{candidate_version.version}"
+    )
 
     champion_pred = champion.predict(test[["lag_168"]])
     candidate_pred = candidate.predict(test[cols])
@@ -86,21 +92,30 @@ def main() -> None:
         }
     )
     zone_mae = by_zone.groupby("zone_id", observed=True).mean()
-    zone_mae["regression_pct"] = (zone_mae.candidate_abs_err - zone_mae.champion_abs_err) / zone_mae.champion_abs_err
+    zone_mae["regression_pct"] = (
+        zone_mae.candidate_abs_err - zone_mae.champion_abs_err
+    ) / zone_mae.champion_abs_err
     worst_zone_regression = float(zone_mae["regression_pct"].max())
     regressed_zones = zone_mae[zone_mae.regression_pct > MAX_ZONE_REGRESSION]
 
     gates = {
         "mae_improvement_pct": mae_improvement * 100,
         "mae_gate_pass": mae_improvement >= MIN_MAE_IMPROVEMENT,
-        "wape_gate_pass": candidate_wape is None or champion_wape is None or candidate_wape <= champion_wape,
+        "wape_gate_pass": candidate_wape is None
+        or champion_wape is None
+        or candidate_wape <= champion_wape,
         "zone_regression_gate_pass": bool(len(regressed_zones) == 0),
         "worst_zone_regression_pct": worst_zone_regression * 100,
         "coverage_pass": coverage >= 1.0,
         "coverage_pct": coverage * 100,
     }
     overall_pass = all(
-        [gates["mae_gate_pass"], gates["wape_gate_pass"], gates["zone_regression_gate_pass"], gates["coverage_pass"]]
+        [
+            gates["mae_gate_pass"],
+            gates["wape_gate_pass"],
+            gates["zone_regression_gate_pass"],
+            gates["coverage_pass"],
+        ]
     )
 
     decision = {
@@ -117,7 +132,9 @@ def main() -> None:
 
     out_path = ROOT / "config" / f"promotion_decision_v{candidate_version.version}.json"
     out_path.write_text(json.dumps(decision, indent=2) + "\n")
-    print(f"\nwrote {out_path.relative_to(ROOT)} -- decision recorded, champion alias NOT moved")
+    print(
+        f"\nwrote {out_path.relative_to(ROOT)} -- decision recorded, champion alias NOT moved"
+    )
 
 
 if __name__ == "__main__":
