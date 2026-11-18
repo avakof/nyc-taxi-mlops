@@ -76,7 +76,7 @@ def test_mlflow_server(tmp_path_factory):
             stderr=subprocess.STDOUT,
         )
         try:
-            deadline = time.monotonic() + 60
+            deadline = time.monotonic() + 180
             with httpx.Client(timeout=1, trust_env=False) as client:
                 while time.monotonic() < deadline:
                     if process.poll() is not None:

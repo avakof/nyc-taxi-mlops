@@ -115,7 +115,7 @@ def bootstrap(output: Path) -> dict:
             stderr=subprocess.STDOUT,
         )
         try:
-            deadline = time.monotonic() + 60
+            deadline = time.monotonic() + 180
             with httpx.Client(timeout=1, trust_env=False) as client:
                 while time.monotonic() < deadline:
                     if server.poll() is not None:
