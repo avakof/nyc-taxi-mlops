@@ -21,9 +21,17 @@ Team of 2. Scope below is compressed to fit that window — see [docs/PROJECT_PL
 | Feature pipeline (zone-hour aggregation, causal lags/rolling, chronological split) | Julia     | Done |
 | Baseline + model training, MLflow tracking                                         | Julia     | Done |
 | MLflow Registry (candidate/champion alias, version export)                         | Julia     | Done |
-| FastAPI service (`/forecast`, `/health`, `/model-info`) + integration tests        | Ali       | Not started |
-| Docker packaging (Dockerfile, Compose, smoke test)                                 | Ali       | Not started |
+| FastAPI service (`/forecast`, `/health`, `/model-info`) + integration tests        | Ali       | Done on milestone/serving; PR pending |
+| Docker packaging (Dockerfile, Compose, smoke test)                                 | Ali       | Done on milestone/serving; PR pending |
 | Drift detection (reference vs. replay comparison) + retraining trigger             | Julia     | Not started |
-| Rollback procedure (retain previous release, restore + verify)                     | Ali       | Not started |
+| Rollback procedure (retain previous release, restore + verify)                     | Ali       | Done on milestone/serving; PR pending |
 | ADRs for each decision made (see [docs/adr/](docs/adr/) for the current list)      | Ali/Julia | In progress |
-| README bootstrap verification (fresh clone → working demo)                         | Ali/Julia | Not started |
+| README bootstrap verification (fresh clone → working demo)                         | Ali/Julia | Done on milestone/serving; PR pending |
+
+## Serving milestone evidence
+
+- Complete API and self-contained hashed releases; 66 serving-era tests plus downloader regression coverage.
+- Docker/Compose smoke verified baseline and native HGB loading.
+- User rollback drill `20261118T095307Z-3c11e0`: forecast 200 → 500 → 200, recovery 21.47 wall-clock seconds.
+- [Postmortem](docs/postmortems/0001-serving-rollback.md), [bootstrap decision](docs/adr/0008-reproducible-local-bootstrap.md), and README describe reproduction and local-only artifact storage.
+- Drift detection/retraining and a joined demand-drift incident remain separate team work. The deployment-failure drill is not evidence of completed drift detection.

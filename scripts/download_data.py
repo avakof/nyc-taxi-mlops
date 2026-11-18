@@ -73,6 +73,18 @@ def build_entry(url: str, dest: Path, citation: str) -> dict:
     }
 
 
+def preserve_snapshot_timestamp(entry: dict, existing_manifest: dict) -> dict:
+    """Keep snapshot identity stable when both the source and bytes are unchanged."""
+    fields = set(entry) - {"downloaded_at"}
+    for previous in existing_manifest.get("files", []):
+        if all(previous.get(field) == entry[field] for field in fields):
+            return {
+                **entry,
+                "downloaded_at": previous.get("downloaded_at", entry["downloaded_at"]),
+            }
+    return entry
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -123,7 +135,7 @@ def main() -> None:
                 f"hash changed for {entry['file']}: expected {prior}, got {entry['sha256']}. "
                 "Re-run with --accept-change if this is an intentional upstream update."
             )
-        entries.append(entry)
+        entries.append(preserve_snapshot_timestamp(entry, existing_manifest))
 
     manifest = {
         "citation": citation,

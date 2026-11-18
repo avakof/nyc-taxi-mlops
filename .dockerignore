@@ -1,0 +1,10 @@
+# Only these files may enter the build context.
+**
+!Dockerfile
+!.dockerignore
+!pyproject.toml
+!uv.lock
+!.python-version
+!src/
+!src/taxi_mlops/
+!src/taxi_mlops/**/*.py

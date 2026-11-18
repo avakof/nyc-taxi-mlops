@@ -1,25 +1,30 @@
 # NYC taxi demand: the MLOps layer
 
-Team project for operating an hourly NYC yellow-taxi demand forecasting system. The objective is reproducible training, traceable deployment, monitoring, controlled retraining, and verified rollback.
+A reproducible historical-replay service forecasting next-hour yellow-taxi pickups for 20 frozen NYC zones. The serving milestone provides exact model/release identity, causal historical features, FastAPI, integration tests, locked Docker packaging, and measured rollback.
 
-Repository: [avakof/nyc-taxi-mlops](https://github.com/avakof/nyc-taxi-mlops).
+**Current serving model:** the parameter-free 168-elapsed-hour seasonal baseline. The existing training scripts also reproduce a tuned HGB candidate. Model quality is secondary to reproducibility and operations.
 
-**Current status:** data pipeline (download, DVC, zone-hour aggregation, chronological split), baselines, a tuned HGB model, and MLflow Registry (`candidate`/`champion`) are done — see [methodology.md](methodology.md)'s task table for exactly what's done vs. outstanding. Serving, drift detection, retraining, and rollback are not yet built.
+**Remaining team work:** drift detection, retraining-trigger integration, and the joined demand-drift incident are Julia's workflow. The bad-deployment rollback drill below is separate evidence. Track status in [methodology.md](methodology.md).
 
-## Join the project
+## Prerequisites
 
-The repository is private. Accept the GitHub collaborator invitation before cloning. Each teammate uses their own GitHub account and local environment.
+- Git, [uv](https://docs.astral.sh/uv/), Docker Desktop/Engine with Docker Compose.
+- Python **3.12.14**, selected by `.python-version`; uv can install it.
+- Approximately 235 MB of public TLC downloads, plus Python/image storage. Build and download before presenting.
+- This repository is private; accept the collaborator invitation before cloning. Before merge, review this work with `git clone --branch milestone/serving <repository-url>`.
 
-Prerequisites: Git and [uv](https://docs.astral.sh/uv/). The project selects Python 3.12.14; uv can install it.
-
-**Intel Mac only:** `cryptography` (pulled in transitively by DVC's `scmrepo`) has no prebuilt wheel for macOS x86_64 above version 42 — `uv sync` will build it from source, which needs OpenSSL dev headers and `pkg-config`:
+On Intel Macs, locked `cryptography==50.0.2` needs a source build. Install its prerequisites before syncing:
 
 ```bash
 brew install openssl@3 pkg-config
 export PKG_CONFIG_PATH="$(brew --prefix openssl@3)/lib/pkgconfig"
 ```
 
-Apple Silicon Macs, Linux, and Windows are unaffected (wheels exist).
+On Windows, use WSL with Docker Desktop's WSL integration. Native managed Windows can block compiled Python dependencies through WDAC. The course/team decision is [ADR-0003](docs/adr/0003-wsl-local-environment.md).
+
+## Fresh clone to working service
+
+Run from the repository root:
 
 ```bash
 git clone https://github.com/avakof/nyc-taxi-mlops.git
@@ -27,87 +32,100 @@ cd nyc-taxi-mlops
 uv python install 3.12.14
 uv sync --locked
 cp .env.example .env
+uv run --locked pytest -q
+uv run --locked python scripts/bootstrap.py --accept-complete-snapshot
+docker compose up --build --detach --wait --wait-timeout 120
+uv run --locked python scripts/smoke_api.py --base-url http://127.0.0.1:8001 --expected-release models/final-serving/release.json
 ```
 
-Check the setup:
+Expected: all tests pass, Docker reports a healthy container, and the smoke result is `PASS` with **586.0** pickups for zone 237 at `2020-02-20T15:00:00Z`.
+
+The bootstrap requires a clean Git working tree. It downloads and checks source hashes, rebuilds hourly counts, checks that outputs match the committed DVC snapshots, populates the local DVC cache, and creates a baseline champion only if this local Registry has none. It starts its own temporary-port MLflow process, preserves the database/artifacts under `.runtime/mlflow/`, exports `models/final-serving`, and stops only its own process. Run/version IDs are local and may differ between clones; equivalent source bytes, settings and predictions are the reproduction criteria.
+
+`--accept-complete-snapshot` explicitly accepts the documented replay assumption: accepted monthly snapshots are complete and hourly observations become available at hour closure. Existing completeness and availability metadata are preserved. Missing files, missing hours, incomplete observations, or late observations are not filled with zero.
+
+Generated data, models, runtime state and secrets are ignored by Git. An existing release is retained; choose a new `--output` directory when the code changes. Re-running bootstrap against an unchanged, validated output reports `ALREADY_PREPARED`.
+
+## API contract
+
+The container is available at `http://127.0.0.1:8001`; interactive documentation is `/docs`. The container itself listens on port 8000.
+
+| Route | Behavior |
+| --- | --- |
+| `GET /health` | 200 when the model, bundle and history source are usable; otherwise 503 |
+| `GET /model-info` | Loaded model name, numeric Registry version, source run, release ID and code identity |
+| `POST /forecast` | Validate zone/origin, construct eligible historical features, predict `[T, T+1 hour)` |
 
 ```bash
+curl -sS http://127.0.0.1:8001/forecast \
+  -H 'Content-Type: application/json' \
+  -d '{"zone_id":237,"forecast_origin":"2020-02-20T15:00:00Z"}'
+```
+
+Use timezone-aware, UTC-hour-aligned origins and a supported zone. Invalid requests return 422; unavailable required history/model returns 503; unexpected inference errors or invalid outputs return 500. Expected counts may be fractional. Read [the forecast contract](docs/forecast_contract.md) and [ADR-0006](docs/adr/0006-serving-api-contract.md).
+
+For the January–February snapshot, history begins `2020-01-01T05:00:00Z`; 168-hour features first become available at `2020-01-08T05:00:00Z`. Forecasts after the stored history ends lack recent observations and return 503. UTC defines elapsed lags; New York time defines calendar features. Request-level history checks apply even when global health is 200.
+
+The current public bootstrap is the parameter-free baseline. Native HGB loading is integration-tested; later trained-model replay must use models trained before the forecast origin and the corresponding validated feature contract. The serving layer validates observation timing; orchestration of model-training cutoffs belongs to the candidate/replay integration.
+
+## Inspect MLflow and reproduce the trained candidate
+
+The bootstrap Registry and artifacts persist locally. To inspect them in a separate terminal:
+
+```bash
+uv run --locked mlflow server --host 127.0.0.1 --port 5050 \
+  --backend-store-uri sqlite:///.runtime/mlflow/mlflow.db \
+  --artifacts-destination .runtime/mlflow/artifacts
+```
+
+Open `http://127.0.0.1:5050`. Baseline source runs record parameters, test MAE/RMSE/WAPE, Git identity and the data-manifest hash.
+
+The optional full modeling pipeline uses the same dataset and frozen zones. With the UI/server running, use a second terminal:
+
+```bash
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5050
+export MLFLOW_REGISTRY_URI=http://127.0.0.1:5050
+uv run --locked python scripts/baselines.py
+uv run --locked python scripts/tune_hgb.py
+uv run --locked python scripts/train_hgb.py
+# Use the printed training run ID:
+uv run --locked python scripts/register_model.py <run_id>
+uv run --locked python scripts/evaluate_promotion.py
+```
+
+The candidate evaluation records its decision; it does not automatically replace the running container. `register_baseline_champion.py` is initial setup only and directly assigns `champion`; do not use it to overwrite an established champion. Bootstrap avoids that reset. Export selected versions to a new output directory; retain the prior image and bundle before deployment.
+
+## Rollback and incident evidence
+
+```bash
+uv run --locked python scripts/rollback_demo.py
+```
+
+The isolated project uses port 8002. It verifies a good deployment, introduces a distinct faulty image whose forecasts return 500 while health stays 200, restores the original image and bundle, and verifies the known prediction. It retains two images, bundles, deployment records and JSON evidence, then removes its demo containers. The normal service on port 8001 remains available.
+
+The recorded user-run drill recovered in **21.47 wall-clock seconds**. This is one measured run, not an availability guarantee. See the [completed postmortem](docs/postmortems/0001-serving-rollback.md), [rollback runbook](docs/runbooks/rollback.md), and [ADR-0007](docs/adr/0007-release-rollback.md). The runbook includes the explicit `restore_release.py` command for an actual retained deployment.
+
+Do not rewind live observations when restoring a model. This demo has identical frozen history in its good/faulty bundles. Demand collapse is a separate drift scenario requiring measured evaluation and an appropriate retraining/fallback decision.
+
+## Verification and collaboration
+
+```bash
+uv run --locked pytest -q
+uv run --locked ruff check src tests scripts
+uv run --locked ruff format --check src tests scripts
 uv lock --check
-uv run --locked python --version
-uv run --locked pytest --version
-uv run --locked ruff --version
 ```
 
-Expected Python version: `3.12.14`. Package versions come from the committed `uv.lock`.
+Tests create their own synthetic data and temporary real MLflow server. They need no TLC download or existing local service. Pytest discovers only `tests/`. GitHub Actions runs the locked checks and a Docker build on pushes/PRs; the first remote result must be checked before merge.
 
-### Windows: use WSL, not native PowerShell/Git Bash
+Use one milestone PR after the batch is complete, request Julia's review, and merge after review/checks. See [contribution instructions](docs/CONTRIBUTING.md). Raw Parquet, `.env`, local registries, generated model packages and image archives never belong in Git.
 
-If your machine enforces Windows Defender Application Control (WDAC) — common on managed/school devices — `dvc`, `pyarrow`, and `mlflow` will fail to import with a DLL-load error, because WDAC blocks unsigned compiled extensions outside native Python/stdlib. This isn't fixable without admin/IT access to the policy.
+DVC and MLflow storage remain local to each clone. Public-source download plus hash validation and DVC cache creation make the demo independently reproducible. Shared artifact storage/Registry would be required for a central team deployment; it is a documented limitation of this local demonstration.
 
-Run everything data/ML-related from a WSL (Ubuntu) terminal instead. The repo stays on the Windows filesystem; WSL just reaches it via `/mnt/c/...`:
+## Demonstration backup
 
-```bash
-cd /mnt/c/path/to/nyc-taxi-mlops
-export UV_PROJECT_ENVIRONMENT=.venv-wsl   # keep a separate venv from the Windows one
-uv sync --locked
-```
+Rehearse before presenting. Keep the retained image/bundle, rollback JSON, and completed postmortem available. Show the API identity and known forecast, then the isolated failure/recovery. If the live demonstration fails, use the saved evidence and identify it as a recorded run. See [presentation guide](docs/PRESENTATION.md). An optional image archive uses `docker image save`/`docker image load`; archives stay outside Git.
 
-macOS and Linux don't have this restriction — run the setup commands above normally. See [docs/adr/0001-initial-architecture.md](docs/adr/0001-initial-architecture.md) ("Local environment: WSL, not native Windows") for why.
+Source: [NYC Taxi and Limousine Commission trip records](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page), yellow taxi January–April 2020 and taxi-zone lookup. TLC monthly publication is not an hourly live feed. March–April files are downloaded for the later drift workflow; the current serving snapshot covers warmup through the healthy test period.
 
-`.env` contains local settings and may later contain credentials. `.env.example` documents safe shared defaults, including `MLFLOW_TRACKING_URI`/`MLFLOW_EXPERIMENT_NAME`/`MLFLOW_MODEL_NAME`. Copying `.env.example` does not start an MLflow server — run it yourself (see ADR-0001, "Experiment tracking") before running any script under `scripts/`.
-
-## Reproduce the pipeline from a fresh clone
-
-Run in order (same terminal — WSL on Windows, native on macOS/Linux):
-
-```bash
-# 1. Start MLflow (leave running in this terminal, or background it)
-mkdir -p mlartifacts
-uv run mlflow ui --host 127.0.0.1 --port 5000 \
-  --backend-store-uri sqlite:///mlflow.db --artifacts-destination ./mlartifacts
-
-# 2. In a second terminal: data, features, model, registry
-uv run python scripts/download_data.py
-uv run python scripts/aggregate_and_split.py
-uv run python scripts/select_zones.py
-uv run python scripts/baselines.py
-uv run python scripts/tune_hgb.py
-uv run python scripts/train_hgb.py          # note the run_id it prints at the end
-uv run python scripts/register_baseline_champion.py
-uv run python scripts/register_model.py <run_id_from_train_hgb_output>
-uv run python scripts/evaluate_promotion.py # compares candidate vs. champion, records the decision
-
-# 3. Tests
-uv run pytest tests/ -v
-```
-
-This reproduces the data pipeline, baselines, tuned HGB model, and MLflow Registry state (`candidate`/`champion`) from nothing but the repo and the public TLC source. See `methodology.md`'s task table for what this does *not* yet cover (serving, drift, retraining, rollback).
-
-## Work as a team
-
-Use a short-lived branch for each task, push the branch, open a pull request, and ask a teammate to review it before merging into `main`. The detailed workflow is in [CONTRIBUTING.md](docs/CONTRIBUTING.md). Track work through GitHub Issues and reference the corresponding project milestone.
-
-This is the team's contribution policy; no CI is configured yet.
-
-## Forecasting contract
-
-Predict expected pickups for each supported zone during `[T, T + 1 hour)`, using complete observations available by forecast issuance `T`. Read the [forecast contract](docs/forecast_contract.md) before changing aggregation, features, evaluation, or serving behavior.
-
-## Data and artifact sharing
-
-Source: [NYC Taxi and Limousine Commission trip records](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page). January–April 2020 yellow-taxi Parquet records and the taxi-zone lookup, downloaded via `scripts/download_data.py` with a hashed manifest (`data/manifest.json`).
-
-GitHub stores source code, configuration, tests, documentation, and DVC metadata (`data/*.dvc`). Raw trip files, local environments, credentials, runtime databases, and model binaries stay outside Git. DVC and MLflow Registry both currently use **local-only** storage (a local DVC cache, a local SQLite-backed MLflow server) — neither is yet accessible independently of this laptop. A shared DVC remote and a team-accessible MLflow server are still required before final submission; see ADR-0001's "Data and versioning" consequences.
-
-The operational demonstration uses historical replay with explicit simulated hourly availability. TLC's monthly publication is not an hourly live feed.
-
-## Project documents
-
-- [Methodology and task assignment](methodology.md)
-- [Architecture decision records](docs/adr/) — start at [0001](docs/adr/0001-initial-architecture.md)
-- [Forecast contract](docs/forecast_contract.md)
-- [Original project plan (superseded by methodology.md)](docs/PROJECT_PLAN.md)
-- [Course review and adaptation notes](docs/COURSE_REVIEW.md)
-- [Contribution workflow](docs/CONTRIBUTING.md)
-
-The original `course/` reference assets are local, ignored materials. Teammates can use the project documents without those files; access the original course materials through the course's distribution channel.
+The original `course/` assets are ignored reference materials; obtain them from the course distribution. Teammates need only this repository and its documented prerequisites to run the system.

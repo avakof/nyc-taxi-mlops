@@ -1,0 +1,9 @@
+# Apply an already-built immutable image; never rebuild during recovery.
+services:
+  api:
+    image: ${TAXI_DEPLOY_IMAGE:?Set the retained local image ID}
+    healthcheck:
+      interval: 2s
+      timeout: 5s
+      start_period: 40s
+      retries: 3

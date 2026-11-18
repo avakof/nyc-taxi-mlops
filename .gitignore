@@ -38,3 +38,8 @@ mlflow-server.log
 
 # macOS metadata
 .DS_Store
+# Local exported model packages
+/models/
+
+# Persistent local bootstrap Registry and artifacts
+/.runtime/

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import mlflow
 import pandas as pd
+from baselines import compute_metrics
 from dotenv import load_dotenv
 from mlflow import MlflowClient
 from mlflow.models import infer_signature
@@ -93,10 +94,28 @@ def main() -> None:
                 tracking.TAG_GIT_COMMIT: tracking.git_commit(),
                 tracking.TAG_GIT_DIRTY: str(tracking.git_dirty()),
                 tracking.TAG_SCENARIO: tracking.SCENARIO_HEALTHY,
+                tracking.TAG_DATA_MANIFEST_SHA256: tracking.data_manifest_sha256(
+                    ROOT / "data/manifest.json"
+                ),
             }
         )
         mlflow.log_params(
             {tracking.PARAM_MODEL_TYPE: MODEL_TYPE, "lag_hours": LAG_HOURS}
+        )
+        metrics = compute_metrics(test.target, test.lag_168)
+        mlflow.log_metrics(
+            {
+                tracking.metric_key("test", key): value
+                for key, value in metrics.items()
+                if value is not None
+            }
+        )
+        mlflow.log_params(
+            {
+                "test_start": params["periods"]["test"]["start"],
+                "test_end": params["periods"]["test"]["end"],
+                "n_zones": len(load_selected_zone_ids()),
+            }
         )
         mlflow.pyfunc.log_model(
             python_model=model,
