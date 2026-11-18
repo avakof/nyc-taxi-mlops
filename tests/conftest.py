@@ -23,6 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
+# dashboard/ is a plain top-level package (not installed, unlike taxi_mlops under src/);
+# `uv run pytest` doesn't add the repo root to sys.path the way `python -m pytest` does,
+# so `from dashboard... import ...` only resolves in CI/a clean invocation with this.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture
