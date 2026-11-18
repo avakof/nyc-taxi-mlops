@@ -7,3 +7,5 @@ Every decision made **after** the baseline gets its own numbered file (`0002-sho
 An ADR documents *why*, not incident timelines. When a decision's consequences later surface as an operational incident (drift fires, a release gets rolled back), write that up as a [post-mortem](../postmortems/template.md) and link it back from the relevant ADR's Consequences section.
 
 For the presentation, the ADR set is the live-demo backbone: walk through the numbered decisions in order, call out tradeoffs, and close with a "what we'd do with more time" entry in the last one.
+
+Current serving decisions: [API contract](0006-serving-api-contract.md), [rollback](0007-release-rollback.md), and [local bootstrap](0008-reproducible-local-bootstrap.md).

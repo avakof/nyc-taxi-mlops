@@ -3038,12 +3038,14 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "dvc" },
+    { name = "fastapi" },
     { name = "httpx" },
     { name = "mlflow" },
     { name = "pyarrow" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "shap" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -3058,12 +3060,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dvc", specifier = ">=3.67.1" },
+    { name = "fastapi", specifier = ">=0.163.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mlflow", specifier = ">=3.18.0" },
     { name = "pyarrow", specifier = ">=26.0.1" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "shap", specifier = ">=0.54.1" },
+    { name = "uvicorn", specifier = ">=0.54.0" },
 ]
 
 [package.metadata.requires-dev]

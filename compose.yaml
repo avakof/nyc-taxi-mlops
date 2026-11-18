@@ -1,0 +1,22 @@
+services:
+  api:
+    image: nyc-taxi-mlops:${TAXI_IMAGE_TAG:-serving}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:${TAXI_API_PORT:-8001}:8000"
+    environment:
+      TAXI_RELEASE_DIR: /opt/release
+      MLFLOW_TRACKING_URI: http://127.0.0.1:1
+      MLFLOW_REGISTRY_URI: http://127.0.0.1:1
+    volumes:
+      - type: bind
+        source: ${TAXI_RELEASE_PATH:-./models/final-serving}
+        target: /opt/release
+        read_only: true
+        bind:
+          create_host_path: false
+    read_only: true
+    tmpfs:
+      - /tmp
