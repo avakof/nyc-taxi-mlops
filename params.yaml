@@ -36,4 +36,33 @@ features:
   lags_hours: [1, 2, 3, 24, 168]
   rolling_windows_hours: [3, 24, 168]
 
+# ADR-0009. Thresholds are provisional (standard PSI / Cohen's-effect-size
+# conventions), not yet calibrated against the Feb 3-17 healthy window.
+drift:
+  reference_period: train
+  window_hours: 168
+  evaluation_cadence_hours: 1
+  min_window_hours: 72
+  persistence:
+    min_state: 2
+    required_consecutive_windows: 3
+  weights:
+    weekend_floor: 0.05
+  thresholds:
+    psi:
+      warning: 0.10
+      retrain: 0.25
+    cohens_d:
+      warning: 0.2
+      retrain: 0.5
+    cohens_w:
+      warning: 0.1
+      retrain: 0.3
+    cohens_h:
+      warning: 0.2
+      retrain: 0.5
+  adf:
+    alpha: 0.05
+    min_observations: 30
+
 random_seed: 42
