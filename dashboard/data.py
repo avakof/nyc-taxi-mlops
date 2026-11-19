@@ -56,6 +56,21 @@ def load_zone_hour_counts() -> pd.DataFrame:
     df = pd.read_parquet(path)
     if df["hour_utc"].dt.tz is None:
         df["hour_utc"] = df["hour_utc"].dt.tz_localize("UTC")
+    df["hour_ny"] = df["hour_utc"].dt.tz_convert("America/New_York")
+    return df
+
+
+@st.cache_data
+def load_forecast_vs_actual() -> pd.DataFrame:
+    """scripts/compute_forecasts.py's output: the real tuned HGB model (Registry
+    `candidate`, not the served `champion` baseline) predicting every causal feature
+    row. Starts ~168h after zone_hour_counts.parquet's own start (build_feature_table
+    drops rows without full lag/rolling history), so it's shorter than the raw series."""
+    path = REPO_ROOT / "reports" / "forecast_vs_actual.parquet"
+    df = pd.read_parquet(path)
+    if df["hour_utc"].dt.tz is None:
+        df["hour_utc"] = df["hour_utc"].dt.tz_localize("UTC")
+    df["hour_ny"] = df["hour_utc"].dt.tz_convert("America/New_York")
     return df
 
 
@@ -104,3 +119,97 @@ def get_nearest_drift_row(
     diffs = (drift_df["window_end"] - target_time).abs()
     nearest_idx = diffs.idxmin()
     return drift_df.loc[nearest_idx]
+
+
+@st.cache_data
+def load_weeks_payload() -> list[dict[str, Any]]:
+    """Build and cache the complete weeks payload for the React component.
+
+    Vectorized and cached to eliminate per-rerun iterrows overhead.
+    """
+    drift_df = load_drift_report()
+    zone_drift_df = load_drift_report_by_zone()
+    selected_zones_list = load_selected_zones()
+
+    zones_by_id = {z["zone_id"]: z for z in selected_zones_list}
+    available_weeks = get_available_weeks(zone_drift_df)
+
+    # Index drift_df by window_end for fast O(1) lookup
+    drift_indexed = drift_df.set_index("window_end")
+
+    # Group zone_drift_df by window_end
+    grouped_zones = {k: v for k, v in zone_drift_df.groupby("window_end")}
+
+    weeks_payload = []
+    for i, w_utc in enumerate(available_weeks):
+        w_ny = w_utc.tz_convert("America/New_York")
+        if w_utc in drift_indexed.index:
+            kpi_match = drift_indexed.loc[w_utc]
+            kpi_row = kpi_match.iloc[0] if isinstance(kpi_match, pd.DataFrame) else kpi_match
+        else:
+            kpi_row = get_nearest_drift_row(drift_df, w_utc)
+
+        zw_df = grouped_zones.get(w_utc)
+        zones_data = []
+        if zw_df is not None:
+            for zr in zw_df.to_dict(orient="records"):
+                zid = int(zr["zone_id"])
+                zmeta = zones_by_id.get(zid, {})
+                zones_data.append(
+                    {
+                        "zone_id": zid,
+                        "name": zmeta.get("name", f"Zone {zid}"),
+                        "borough": zmeta.get("borough", "Unknown"),
+                        "pickups_train": zmeta.get("pickups_train", 0),
+                        "state_pickups_residual": int(zr.get("state_pickups_residual", 0)),
+                        "z_pickups_residual": float(zr.get("z_pickups_residual", 0.0)),
+                        "cohens_d_pickups_residual": float(
+                            zr.get("cohens_d_pickups_residual", 0.0)
+                        ),
+                        "psi_pickups_residual": float(zr.get("psi_pickups_residual", 0.0)),
+                        "persistent_alert": bool(zr.get("persistent_alert", False)),
+                    }
+                )
+
+        weeks_payload.append(
+            {
+                "week_index": i,
+                "window_end_utc": w_utc.isoformat(),
+                "window_end_str": w_ny.strftime("%Y-%m-%d %H:%M EST"),
+                "label": f"Week {i + 1} ({w_ny.strftime('%b %d, %Y')})",
+                "kpi": {
+                    "max_state": int(kpi_row.get("max_state", 0)),
+                    "weighted_score": float(kpi_row.get("weighted_score", 0.0)),
+                    "persistent_alert": bool(kpi_row.get("persistent_alert", False)),
+                    "state_pickups_residual": int(
+                        kpi_row.get("state_pickups_residual", 0)
+                    ),
+                    "psi_pickups_residual": float(
+                        kpi_row.get("psi_pickups_residual", 0.0)
+                    ),
+                    "cohens_d_pickups_residual": float(
+                        kpi_row.get("cohens_d_pickups_residual", 0.0)
+                    ),
+                    "adf_label": str(kpi_row.get("adf_label", "reverting")),
+                    "state_zone_mix": int(kpi_row.get("state_zone_mix", 0)),
+                    "psi_zone_mix": float(kpi_row.get("psi_zone_mix", 0.0)),
+                    "cohens_w_zone_mix": float(kpi_row.get("cohens_w_zone_mix", 0.0)),
+                    "state_hour_of_day_mix": int(
+                        kpi_row.get("state_hour_of_day_mix", 0)
+                    ),
+                    "psi_hour_of_day_mix": float(
+                        kpi_row.get("psi_hour_of_day_mix", 0.0)
+                    ),
+                    "cohens_w_hour_of_day_mix": float(
+                        kpi_row.get("cohens_w_hour_of_day_mix", 0.0)
+                    ),
+                    "state_weekend_mix": int(kpi_row.get("state_weekend_mix", 0)),
+                    "psi_weekend_mix": float(kpi_row.get("psi_weekend_mix", 0.0)),
+                    "cohens_h_weekend_mix": float(
+                        kpi_row.get("cohens_h_weekend_mix", 0.0)
+                    ),
+                },
+                "zones": zones_data,
+            }
+        )
+    return weeks_payload

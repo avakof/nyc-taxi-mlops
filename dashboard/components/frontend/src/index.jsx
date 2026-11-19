@@ -1,16 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { withStreamlitConnection } from "streamlit-component-lib";
 import DriftDashboardControls from "./Component";
 
-// withStreamlitConnection owns the handshake (componentReady, the render-event
-// listener, args/theme as props) -- Component.jsx itself only calls
-// Streamlit.setFrameHeight()/setComponentValue() for its own updates.
-const ConnectedDriftDashboardControls = withStreamlitConnection(DriftDashboardControls);
-
+// NOT using streamlit-component-lib's withStreamlitConnection/StreamlitComponentBase --
+// that package pins "react": "^16.14.0" and its wrapper calls React.createElement with
+// its own bundled React 16 copy, which React 19's reconciler rejects ("A React Element
+// from an older version of React was rendered"). Component.jsx instead talks to the
+// library's plain `Streamlit` singleton directly (streamlit.js has zero React import,
+// so it's version-agnostic) and does its own componentReady/render-event handshake.
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
   <React.StrictMode>
-    <ConnectedDriftDashboardControls />
+    <DriftDashboardControls />
   </React.StrictMode>
 );
