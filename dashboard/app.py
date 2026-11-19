@@ -25,6 +25,8 @@ from dashboard.data import (
     load_selected_zones,
     load_weeks_payload,
     load_zone_hour_counts,
+    modeled_zone_counts,
+    weekday_means,
 )
 
 # Page configuration
@@ -89,34 +91,31 @@ st.markdown(
 )
 
 
+def show_missing_weekdays(train: pd.Series, test: pd.Series) -> None:
+    for label, means in (("Train", train), ("Test", test)):
+        missing = means.index[means.isna()]
+        if len(missing):
+            st.caption(f"{label} · No data for {', '.join(missing)}.")
+
+
 @st.cache_data
 def get_scope_aggregated_series(
+    modeled_zone_ids: tuple[int, ...],
     chosen_zone_ids: tuple[int, ...],
     resample_freq: str,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
+    """NaN-aware: an hour missing/incomplete for any zone in scope stays unknown,
+    rather than silently counting as 0 (ADR: modeled-zone totals must be observed)."""
     zone_hour_df = load_zone_hour_counts()
     forecast_df = load_forecast_vs_actual()
+    universe = list(chosen_zone_ids) if chosen_zone_ids else list(modeled_zone_ids)
 
-    if chosen_zone_ids:
-        scope_df = zone_hour_df[zone_hour_df["zone_id"].isin(chosen_zone_ids)]
-        forecast_scope_df = forecast_df[forecast_df["zone_id"].isin(chosen_zone_ids)]
-    else:
-        scope_df = zone_hour_df
-        forecast_scope_df = forecast_df
+    counts_by_zone = modeled_zone_counts(zone_hour_df, universe).rename_axis("hour_ny")
+    scope_hourly = counts_by_zone.sum(axis=1, min_count=len(universe)).rename("pickups")
 
-    scope_hourly = (
-        scope_df.groupby("hour_ny")["pickups"]
-        .sum()
-        .reset_index()
-        .sort_values("hour_ny")
-    )
-    agg_series = (
-        scope_hourly.set_index("hour_ny")
-        .resample(resample_freq)["pickups"]
-        .sum()
-        .reset_index()
-    )
+    agg_series = scope_hourly.resample(resample_freq).sum().reset_index()
 
+    forecast_scope_df = forecast_df[forecast_df["zone_id"].isin(universe)]
     forecast_hourly = (
         forecast_scope_df.groupby("hour_ny")["forecasted_pickups"].sum().reset_index()
     )
@@ -131,56 +130,32 @@ def get_scope_aggregated_series(
 
 @st.cache_data
 def get_citywide_dow_figure(
+    modeled_zone_ids: tuple[int, ...],
     train_start_iso: str,
     train_end_iso: str,
     test_start_iso: str,
     test_end_iso: str,
-) -> go.Figure:
+) -> tuple[go.Figure, pd.Series, pd.Series]:
+    """Fixed reference scope (always every modeled zone) -- a modeled-area total
+    needs an observed count from every selected zone, else the hour is unknown."""
     zone_hour_df = load_zone_hour_counts()
-    city_hourly = zone_hour_df.groupby("hour_ny")["pickups"].sum().reset_index()
+    counts_by_zone = modeled_zone_counts(zone_hour_df, list(modeled_zone_ids)).rename_axis(
+        "hour_ny"
+    )
+    city_hourly = counts_by_zone.sum(axis=1, min_count=len(modeled_zone_ids))
 
     train_start = pd.Timestamp(train_start_iso)
     train_end = pd.Timestamp(train_end_iso)
     test_start = pd.Timestamp(test_start_iso)
     test_end = pd.Timestamp(test_end_iso)
 
-    city_train = city_hourly[
-        (city_hourly["hour_ny"] >= train_start)
-        & (city_hourly["hour_ny"] < train_end)
-    ].copy()
-    city_test = city_hourly[
-        (city_hourly["hour_ny"] >= test_start) & (city_hourly["hour_ny"] < test_end)
-    ].copy()
-
-    city_train["day_of_week"] = city_train["hour_ny"].dt.day_name()
-    city_test["day_of_week"] = city_test["hour_ny"].dt.day_name()
-
-    dow_order = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-    ]
-    city_train_means = (
-        city_train.groupby("day_of_week")["pickups"]
-        .mean()
-        .reindex(dow_order)
-        .fillna(0)
-    )
-    city_test_means = (
-        city_test.groupby("day_of_week")["pickups"]
-        .mean()
-        .reindex(dow_order)
-        .fillna(0)
-    )
+    city_train_means = weekday_means(city_hourly, train_start, train_end)
+    city_test_means = weekday_means(city_hourly, test_start, test_end)
 
     fig_city = go.Figure()
     fig_city.add_trace(
         go.Bar(
-            x=dow_order,
+            x=city_train_means.index,
             y=city_train_means,
             name="Train Period",
             marker_color=KNICKS_BLUE,
@@ -189,7 +164,7 @@ def get_citywide_dow_figure(
     )
     fig_city.add_trace(
         go.Bar(
-            x=dow_order,
+            x=city_test_means.index,
             y=city_test_means,
             name="Test Period",
             marker_color=KNICKS_ORANGE,
@@ -199,7 +174,7 @@ def get_citywide_dow_figure(
 
     fig_city.update_layout(
         title={
-            "text": "Citywide Aggregate Day-of-Week Diurnal Shift (All 20 Zones)",
+            "text": f"Average hourly pickups by weekday ({len(modeled_zone_ids)} modeled zones)",
             "font": {"size": 14, "color": KNICKS_BLUE},
         },
         barmode="group",
@@ -216,7 +191,9 @@ def get_citywide_dow_figure(
             "x": 1,
         },
     )
-    return fig_city
+    return fig_city, city_train_means, city_test_means
+
+
 def main() -> None:
     # Header Banner
     st.markdown(
@@ -338,6 +315,7 @@ def main() -> None:
     )
     resample_freq = "D" if agg_choice == "Daily" else "W"
     scope_hourly, agg_series, forecast_agg_series = get_scope_aggregated_series(
+        tuple(zone_options),
         tuple(chosen_zone_ids),
         resample_freq,
     )
@@ -437,43 +415,12 @@ def main() -> None:
 
     # Diagnostic 2: Grouped Bar Chart Comparing Day-of-Week (Train vs Test)
     col1, col2 = st.columns([1, 1])
-    dow_order = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-    ]
 
     with col1:
         # Respects the zone filter above -- defaults to the same "All 20 Zones" scope as
         # the line chart, so this and the fixed citywide reference in col2 start identical.
-        train_slice = scope_hourly[
-            (scope_hourly["hour_ny"] >= train_start)
-            & (scope_hourly["hour_ny"] < train_end)
-        ].copy()
-        test_slice = scope_hourly[
-            (scope_hourly["hour_ny"] >= test_start)
-            & (scope_hourly["hour_ny"] < test_end)
-        ].copy()
-
-        train_slice["day_of_week"] = train_slice["hour_ny"].dt.day_name()
-        test_slice["day_of_week"] = test_slice["hour_ny"].dt.day_name()
-
-        train_means = (
-            train_slice.groupby("day_of_week")["pickups"]
-            .mean()
-            .reindex(dow_order)
-            .fillna(0)
-        )
-        test_means = (
-            test_slice.groupby("day_of_week")["pickups"]
-            .mean()
-            .reindex(dow_order)
-            .fillna(0)
-        )
+        train_means = weekday_means(scope_hourly, train_start, train_end)
+        test_means = weekday_means(scope_hourly, test_start, test_end)
 
         fig_dow = go.Figure()
         fig_dow.add_trace(
@@ -515,15 +462,18 @@ def main() -> None:
             },
         )
         st.plotly_chart(fig_dow, use_container_width=True)
+        show_missing_weekdays(train_means, test_means)
 
     with col2:
-        fig_city = get_citywide_dow_figure(
+        fig_city, city_train_means, city_test_means = get_citywide_dow_figure(
+            tuple(zone_options),
             train_start.isoformat(),
             train_end.isoformat(),
             test_start.isoformat(),
             test_end.isoformat(),
         )
         st.plotly_chart(fig_city, use_container_width=True)
+        show_missing_weekdays(city_train_means, city_test_means)
 
 
 if __name__ == "__main__":

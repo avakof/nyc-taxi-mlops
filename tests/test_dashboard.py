@@ -123,14 +123,23 @@ def test_rendered_weekday_charts_use_modeled_zones_and_preserve_gaps(monkeypatch
         for zone in [237, 161]
     ]
     week = pd.Timestamp("2020-02-18T06:00Z")
-    report = pd.DataFrame({"window_end": [week]})
+    forecast_df = pd.DataFrame(
+        {
+            "zone_id": pd.Series(dtype="int64"),
+            "hour_ny": pd.Series(dtype="datetime64[ns, America/New_York]"),
+            "forecasted_pickups": pd.Series(dtype="float64"),
+        }
+    )
     monkeypatch.setattr(app, "load_selected_zones", lambda: zones)
     monkeypatch.setattr(app, "load_zone_hour_counts", lambda: counts)
-    monkeypatch.setattr(app, "load_drift_report", lambda: report)
+    monkeypatch.setattr(app, "load_forecast_vs_actual", lambda: forecast_df)
     monkeypatch.setattr(
-        app, "load_drift_report_by_zone", lambda: report.assign(zone_id=237)
+        app, "load_weeks_payload", lambda: [{"window_end_utc": week.isoformat()}]
     )
     monkeypatch.setattr(app, "drift_dashboard_controls", lambda **kwargs: {})
+    # Scope the diagnostics to zone 237 alone -- the citywide reference (col2) stays
+    # fixed to every modeled zone regardless of this filter, so the two charts differ.
+    monkeypatch.setattr(app.st, "multiselect", lambda *args, **kwargs: [237])
     figures = []
     captions = []
     monkeypatch.setattr(
