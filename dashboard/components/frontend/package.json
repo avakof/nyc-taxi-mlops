@@ -1,0 +1,24 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild src/index.jsx --bundle --outfile=../dist/bundle.js --jsx=automatic"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "lucide-react": "^1.75.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "recharts": "^3.11.0",
+    "streamlit-component-lib": "^2.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

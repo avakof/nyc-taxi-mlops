@@ -38,6 +38,11 @@ mlflow-server.log
 
 # macOS metadata
 .DS_Store
+
+# Dashboard frontend build tooling (dashboard/components/dist/ IS committed -- it's the
+# built bundle the Python component serves; only the Node tooling that produces it is not)
+dashboard/components/frontend/node_modules/
+dashboard/components/frontend/.cache/
 # Local exported model packages
 /models/
 
