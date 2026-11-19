@@ -27,6 +27,8 @@ from dashboard.data import (
     load_params,
     load_selected_zones,
     load_zone_hour_counts,
+    modeled_zone_counts,
+    weekday_means,
 )
 
 # Page configuration
@@ -89,6 +91,13 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+def show_missing_weekdays(train: pd.Series, test: pd.Series) -> None:
+    for label, means in (("Train", train), ("Test", test)):
+        missing = means.index[means.isna()]
+        if len(missing):
+            st.caption(f"{label} · No data for {', '.join(missing)}.")
 
 
 def main() -> None:
@@ -237,10 +246,8 @@ def main() -> None:
         format_func=lambda zid: zone_labels.get(zid, f"Zone {zid}"),
     )
 
-    # Filter raw pickups for chosen zone
-    zone_counts = zone_hour_df[zone_hour_df["zone_id"] == chosen_zone_id].copy()
-    zone_counts["hour_ny"] = zone_counts["hour_utc"].dt.tz_convert("America/New_York")
-    zone_counts = zone_counts.sort_values("hour_ny").reset_index(drop=True)
+    counts_by_zone = modeled_zone_counts(zone_hour_df, zone_options)
+    zone_counts = counts_by_zone[chosen_zone_id]
 
     # Periods from params.yaml
     periods = params.get("periods", {})
@@ -256,8 +263,8 @@ def main() -> None:
 
     fig_line.add_trace(
         go.Scatter(
-            x=zone_counts["hour_ny"],
-            y=zone_counts["pickups"],
+            x=zone_counts.index,
+            y=zone_counts,
             mode="lines",
             name="Hourly Pickups",
             line={"color": KNICKS_BLUE, "width": 1.5},
@@ -320,22 +327,13 @@ def main() -> None:
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        # Zone-specific day-of-week
-        train_slice = zone_counts[(zone_counts["hour_ny"] >= train_start) & (zone_counts["hour_ny"] < train_end)].copy()
-        test_slice = zone_counts[(zone_counts["hour_ny"] >= test_start) & (zone_counts["hour_ny"] < test_end)].copy()
-
-        train_slice["day_of_week"] = train_slice["hour_ny"].dt.day_name()
-        test_slice["day_of_week"] = test_slice["hour_ny"].dt.day_name()
-
-        dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-
-        train_means = train_slice.groupby("day_of_week")["pickups"].mean().reindex(dow_order).fillna(0)
-        test_means = test_slice.groupby("day_of_week")["pickups"].mean().reindex(dow_order).fillna(0)
+        train_means = weekday_means(zone_counts, train_start, train_end)
+        test_means = weekday_means(zone_counts, test_start, test_end)
 
         fig_dow = go.Figure()
         fig_dow.add_trace(
             go.Bar(
-                x=dow_order,
+                x=train_means.index,
                 y=train_means,
                 name="Train Period (Jan 08 - Feb 03)",
                 marker_color=KNICKS_BLUE,
@@ -344,7 +342,7 @@ def main() -> None:
         )
         fig_dow.add_trace(
             go.Bar(
-                x=dow_order,
+                x=test_means.index,
                 y=test_means,
                 name="Test Period (Feb 17 - Mar 01)",
                 marker_color=KNICKS_ORANGE,
@@ -366,26 +364,18 @@ def main() -> None:
             legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
         )
         st.plotly_chart(fig_dow, use_container_width=True)
+        show_missing_weekdays(train_means, test_means)
 
     with col2:
-        # Citywide aggregate day-of-week
-        city_counts = zone_hour_df.copy()
-        city_counts["hour_ny"] = city_counts["hour_utc"].dt.tz_convert("America/New_York")
-        city_hourly = city_counts.groupby("hour_ny")["pickups"].sum().reset_index()
-
-        city_train = city_hourly[(city_hourly["hour_ny"] >= train_start) & (city_hourly["hour_ny"] < train_end)].copy()
-        city_test = city_hourly[(city_hourly["hour_ny"] >= test_start) & (city_hourly["hour_ny"] < test_end)].copy()
-
-        city_train["day_of_week"] = city_train["hour_ny"].dt.day_name()
-        city_test["day_of_week"] = city_test["hour_ny"].dt.day_name()
-
-        city_train_means = city_train.groupby("day_of_week")["pickups"].mean().reindex(dow_order).fillna(0)
-        city_test_means = city_test.groupby("day_of_week")["pickups"].mean().reindex(dow_order).fillna(0)
+        # A modeled-area total needs an observed count from every selected zone.
+        city_hourly = counts_by_zone.sum(axis=1, min_count=len(zone_options))
+        city_train_means = weekday_means(city_hourly, train_start, train_end)
+        city_test_means = weekday_means(city_hourly, test_start, test_end)
 
         fig_city = go.Figure()
         fig_city.add_trace(
             go.Bar(
-                x=dow_order,
+                x=city_train_means.index,
                 y=city_train_means,
                 name="Train Period",
                 marker_color=KNICKS_BLUE,
@@ -394,7 +384,7 @@ def main() -> None:
         )
         fig_city.add_trace(
             go.Bar(
-                x=dow_order,
+                x=city_test_means.index,
                 y=city_test_means,
                 name="Test Period",
                 marker_color=KNICKS_ORANGE,
@@ -404,7 +394,7 @@ def main() -> None:
 
         fig_city.update_layout(
             title={
-                "text": "Citywide Aggregate Day-of-Week Diurnal Shift (All 20 Zones)",
+                "text": f"Average hourly pickups by weekday ({len(zone_options)} modeled zones)",
                 "font": {"size": 14, "color": KNICKS_BLUE},
             },
             barmode="group",
@@ -416,6 +406,7 @@ def main() -> None:
             legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
         )
         st.plotly_chart(fig_city, use_container_width=True)
+        show_missing_weekdays(city_train_means, city_test_means)
 
 
 if __name__ == "__main__":

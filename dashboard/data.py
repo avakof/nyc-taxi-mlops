@@ -59,13 +59,43 @@ def load_zone_hour_counts() -> pd.DataFrame:
     return df
 
 
+WEEKDAYS = (
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+)
+
+
+def modeled_zone_counts(zone_hour: pd.DataFrame, zone_ids: list[int]) -> pd.DataFrame:
+    """One column per modeled zone; missing or incomplete counts stay unknown."""
+    rows = zone_hour.loc[zone_hour["zone_id"].isin(zone_ids)]
+    if "is_complete" in rows.columns:
+        rows = rows.assign(pickups=rows["pickups"].where(rows["is_complete"].eq(True)))
+    counts = rows.pivot(index="hour_utc", columns="zone_id", values="pickups")
+    return counts.reindex(columns=zone_ids).tz_convert("America/New_York")
+
+
+def weekday_means(
+    hourly: pd.Series, start: pd.Timestamp, end: pd.Timestamp
+) -> pd.Series:
+    """Mean of observed hourly counts per local weekday in the half-open period."""
+    period = hourly.loc[(hourly.index >= start) & (hourly.index < end)]
+    return period.groupby(period.index.day_name()).mean().reindex(WEEKDAYS)
+
+
 def get_available_weeks(zone_report_df: pd.DataFrame) -> list[pd.Timestamp]:
     """Return distinct sorted window_end timestamps available in the weekly zone report."""
     weeks = sorted(zone_report_df["window_end"].unique())
     return [pd.Timestamp(w) for w in weeks]
 
 
-def get_nearest_drift_row(drift_df: pd.DataFrame, target_time: pd.Timestamp) -> pd.Series:
+def get_nearest_drift_row(
+    drift_df: pd.DataFrame, target_time: pd.Timestamp
+) -> pd.Series:
     """Find the exact or nearest drift_report row for the given target timestamp."""
     exact = drift_df[drift_df["window_end"] == target_time]
     if len(exact) > 0:

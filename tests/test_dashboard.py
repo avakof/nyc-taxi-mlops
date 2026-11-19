@@ -98,3 +98,54 @@ def test_zone_hour_counts_and_dow_calculation():
     z237["day_name"] = z237["hour_ny"].dt.day_name()
     dow_means = z237.groupby("day_name")["pickups"].mean()
     assert not dow_means.empty
+
+
+def test_rendered_weekday_charts_use_modeled_zones_and_preserve_gaps(monkeypatch):
+    from dashboard import app
+
+    # The first UTC timestamp is still Wednesday evening in New York.
+    hours = pd.to_datetime(
+        ["2020-01-09T04:00Z"] * 3
+        + ["2020-01-09T06:00Z"] * 2
+        + ["2020-01-10T06:00Z"]
+        + ["2020-02-18T06:00Z"] * 2
+    )
+    counts = pd.DataFrame(
+        {
+            "hour_utc": hours,
+            "zone_id": [237, 161, 999, 237, 161, 237, 237, 161],
+            "pickups": [10, 4, 1000, 0, 0, 8, 9, 42],
+            "is_complete": [True] * 7 + [False],
+        }
+    )
+    zones = [
+        {"zone_id": zone, "name": str(zone), "borough": "Manhattan"}
+        for zone in [237, 161]
+    ]
+    week = pd.Timestamp("2020-02-18T06:00Z")
+    report = pd.DataFrame({"window_end": [week]})
+    monkeypatch.setattr(app, "load_selected_zones", lambda: zones)
+    monkeypatch.setattr(app, "load_zone_hour_counts", lambda: counts)
+    monkeypatch.setattr(app, "load_drift_report", lambda: report)
+    monkeypatch.setattr(
+        app, "load_drift_report_by_zone", lambda: report.assign(zone_id=237)
+    )
+    monkeypatch.setattr(app, "drift_dashboard_controls", lambda **kwargs: {})
+    figures = []
+    captions = []
+    monkeypatch.setattr(
+        app.st, "plotly_chart", lambda fig, **kwargs: figures.append(fig)
+    )
+    monkeypatch.setattr(app.st, "caption", captions.append)
+    app.main()
+
+    _, zone_figure, city_figure = figures
+    zone_train, zone_test = [pd.Series(bar.y, index=bar.x) for bar in zone_figure.data]
+    city_train, city_test = [pd.Series(bar.y, index=bar.x) for bar in city_figure.data]
+    assert city_train["Wednesday"] == 14
+    assert zone_train["Wednesday"] == 10
+    assert city_train["Thursday"] == zone_train["Thursday"] == 0
+    assert pd.isna(city_train["Monday"]) and pd.isna(zone_train["Monday"])
+    assert zone_train["Friday"] == 8 and pd.isna(city_train["Friday"])
+    assert zone_test["Tuesday"] == 9 and pd.isna(city_test["Tuesday"])
+    assert any("No data" in note and "Monday" in note for note in captions)
