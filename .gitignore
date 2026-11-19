@@ -48,3 +48,8 @@ dashboard/components/frontend/.cache/
 
 # Persistent local bootstrap Registry and artifacts
 /.runtime/
+
+
+# mds
+demo
+presentation.md
