@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Streamlit } from "streamlit-component-lib";
+// Deep import, not the package barrel: streamlit-component-lib's index.js also
+// re-exports withStreamlitConnection/StreamlitComponentBase from StreamlitReact.js,
+// which is compiled against React 16 ("react": "^16.14.0" in its own package.json) and
+// crashes React 19 ("A React Element from an older version of React was rendered") --
+// streamlit.js itself has no React import at all, so importing only this file sidesteps
+// that incompatibility instead of needing to downgrade React.
+import { Streamlit } from "streamlit-component-lib/dist/streamlit";
 
 // State meaning definitions and color ramp (distinct from brand orange #F58426)
 const STATE_CONFIG = {
@@ -10,17 +16,34 @@ const STATE_CONFIG = {
   4: { label: "RETRAIN", color: "#991B1B", bg: "#450A0A", border: "#F87171", icon: "🛑" }
 };
 
-// `args`/`theme` arrive as props from withStreamlitConnection (index.jsx) -- it already
-// performed the componentReady handshake and owns the streamlit:render listener, so this
-// component only ever reacts to its own args/local state, never raw postMessage events.
-function DriftDashboardControls({ args }) {
-  const data = args;
-  const [weekIndex, setWeekIndex] = useState(args.initialWeekIndex ?? 0);
+export default function DriftDashboardControls() {
+  const [data, setData] = useState(null);
+  const [weekIndex, setWeekIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [whatIfThreshold, setWhatIfThreshold] = useState(20);
-  const [selectedZoneId, setSelectedZoneId] = useState(args.initialZoneId ?? null);
+  const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [viewMode, setViewMode] = useState("table"); // "table" | "chart"
   const playTimerRef = useRef(null);
+  const initializedRef = useRef(false);
+
+  // Handshake with Streamlit's real protocol (via the library's plain Streamlit
+  // singleton, not its React-coupled wrapper -- see the import comment above).
+  useEffect(() => {
+    const handleRender = (event) => {
+      const newArgs = event.detail.args;
+      setData(newArgs);
+      // initialWeekIndex/initialZoneId are only meant to seed state once; later
+      // re-renders (e.g. a Streamlit rerun) must not stomp on user interaction.
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+        if (newArgs.initialWeekIndex !== undefined) setWeekIndex(newArgs.initialWeekIndex);
+        if (newArgs.initialZoneId !== undefined) setSelectedZoneId(newArgs.initialZoneId);
+      }
+    };
+    Streamlit.events.addEventListener(Streamlit.RENDER_EVENT, handleRender);
+    Streamlit.setComponentReady();
+    return () => Streamlit.events.removeEventListener(Streamlit.RENDER_EVENT, handleRender);
+  }, []);
 
   // Auto-resize iframe
   useEffect(() => {
@@ -69,13 +92,13 @@ function DriftDashboardControls({ args }) {
 
   const handleThresholdChange = (val) => {
     setWhatIfThreshold(val);
-    notifyStreamlit(weekIndex, val, selectedZoneId);
+    // Purely client-side UI filter: do not trigger expensive Streamlit Python reruns
   };
 
   const handleZoneSelect = (zId) => {
     const nextZone = selectedZoneId === zId ? null : zId;
     setSelectedZoneId(nextZone);
-    notifyStreamlit(weekIndex, whatIfThreshold, nextZone);
+    // Purely client-side table highlight: do not trigger expensive Streamlit Python reruns
   };
 
   if (!data || !data.weeks || data.weeks.length === 0) {
@@ -734,5 +757,3 @@ function DriftDashboardControls({ args }) {
     </div>
   );
 }
-
-export default DriftDashboardControls;

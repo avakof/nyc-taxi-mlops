@@ -1,0 +1,4 @@
+bash break.sh
+curl -X POST http://127.0.0.1:8001/forecast -H "Content-Type: application/json" -d '{"zone_id":237,"forecast_origin":"2020-02-20T15:00:00Z"}'
+
+bash rollback.sh

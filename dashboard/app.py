@@ -20,12 +20,10 @@ import streamlit as st
 
 from dashboard.components import drift_dashboard_controls
 from dashboard.data import (
-    get_available_weeks,
-    get_nearest_drift_row,
-    load_drift_report,
-    load_drift_report_by_zone,
+    load_forecast_vs_actual,
     load_params,
     load_selected_zones,
+    load_weeks_payload,
     load_zone_hour_counts,
     modeled_zone_counts,
     weekday_means,
@@ -100,6 +98,102 @@ def show_missing_weekdays(train: pd.Series, test: pd.Series) -> None:
             st.caption(f"{label} · No data for {', '.join(missing)}.")
 
 
+@st.cache_data
+def get_scope_aggregated_series(
+    modeled_zone_ids: tuple[int, ...],
+    chosen_zone_ids: tuple[int, ...],
+    resample_freq: str,
+) -> tuple[pd.Series, pd.DataFrame, pd.DataFrame]:
+    """NaN-aware: an hour missing/incomplete for any zone in scope stays unknown,
+    rather than silently counting as 0 (ADR: modeled-zone totals must be observed)."""
+    zone_hour_df = load_zone_hour_counts()
+    forecast_df = load_forecast_vs_actual()
+    universe = list(chosen_zone_ids) if chosen_zone_ids else list(modeled_zone_ids)
+
+    counts_by_zone = modeled_zone_counts(zone_hour_df, universe).rename_axis("hour_ny")
+    scope_hourly = counts_by_zone.sum(axis=1, min_count=len(universe)).rename("pickups")
+
+    agg_series = scope_hourly.resample(resample_freq).sum().reset_index()
+
+    forecast_scope_df = forecast_df[forecast_df["zone_id"].isin(universe)]
+    forecast_hourly = (
+        forecast_scope_df.groupby("hour_ny")["forecasted_pickups"].sum().reset_index()
+    )
+    forecast_agg_series = (
+        forecast_hourly.set_index("hour_ny")
+        .resample(resample_freq)["forecasted_pickups"]
+        .sum()
+        .reset_index()
+    )
+    return scope_hourly, agg_series, forecast_agg_series
+
+
+@st.cache_data
+def get_citywide_dow_figure(
+    modeled_zone_ids: tuple[int, ...],
+    train_start_iso: str,
+    train_end_iso: str,
+    test_start_iso: str,
+    test_end_iso: str,
+) -> tuple[go.Figure, pd.Series, pd.Series]:
+    """Fixed reference scope (always every modeled zone) -- a modeled-area total
+    needs an observed count from every selected zone, else the hour is unknown."""
+    zone_hour_df = load_zone_hour_counts()
+    counts_by_zone = modeled_zone_counts(zone_hour_df, list(modeled_zone_ids)).rename_axis(
+        "hour_ny"
+    )
+    city_hourly = counts_by_zone.sum(axis=1, min_count=len(modeled_zone_ids))
+
+    train_start = pd.Timestamp(train_start_iso)
+    train_end = pd.Timestamp(train_end_iso)
+    test_start = pd.Timestamp(test_start_iso)
+    test_end = pd.Timestamp(test_end_iso)
+
+    city_train_means = weekday_means(city_hourly, train_start, train_end)
+    city_test_means = weekday_means(city_hourly, test_start, test_end)
+
+    fig_city = go.Figure()
+    fig_city.add_trace(
+        go.Bar(
+            x=city_train_means.index,
+            y=city_train_means,
+            name="Train Period",
+            marker_color=KNICKS_BLUE,
+            hovertemplate="%{x}<br>Citywide Train Mean: %{y:,.0f} pickups/hr<extra></extra>",
+        )
+    )
+    fig_city.add_trace(
+        go.Bar(
+            x=city_test_means.index,
+            y=city_test_means,
+            name="Test Period",
+            marker_color=KNICKS_ORANGE,
+            hovertemplate="%{x}<br>Citywide Test Mean: %{y:,.0f} pickups/hr<extra></extra>",
+        )
+    )
+
+    fig_city.update_layout(
+        title={
+            "text": f"Average hourly pickups by weekday ({len(modeled_zone_ids)} modeled zones)",
+            "font": {"size": 14, "color": KNICKS_BLUE},
+        },
+        barmode="group",
+        xaxis_title="Day of Week (Local NY Time)",
+        yaxis_title="Citywide Avg Pickups / Hour",
+        template="plotly_white",
+        height=340,
+        margin={"l": 40, "r": 20, "t": 45, "b": 40},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.02,
+            "xanchor": "right",
+            "x": 1,
+        },
+    )
+    return fig_city, city_train_means, city_test_means
+
+
 def main() -> None:
     # Header Banner
     st.markdown(
@@ -125,9 +219,7 @@ def main() -> None:
     # 1. Load precomputed datasets and configuration
     params = load_params()
     selected_zones_list = load_selected_zones()
-    drift_df = load_drift_report()
-    zone_drift_df = load_drift_report_by_zone()
-    zone_hour_df = load_zone_hour_counts()
+    weeks_payload = load_weeks_payload()
 
     # Zone mapping dictionaries
     zones_by_id = {z["zone_id"]: z for z in selected_zones_list}
@@ -135,68 +227,17 @@ def main() -> None:
     default_zone = max(selected_zones_list, key=lambda z: z.get("pickups_train", 0))
     default_zone_id = default_zone["zone_id"]
 
-    # Available simulation weeks from weekly zone report
-    available_weeks = get_available_weeks(zone_drift_df)
-    if not available_weeks:
-        st.error("No weekly evaluation windows found in reports/drift_report_by_zone.parquet.")
+    if not weeks_payload:
+        st.error(
+            "No weekly evaluation windows found in reports/drift_report_by_zone.parquet."
+        )
         return
 
-    # 2. Build payload for the React component
-    weeks_payload = []
-    for i, w_utc in enumerate(available_weeks):
-        w_ny = w_utc.tz_convert("America/New_York")
-        # Nearest / exact citywide row
-        kpi_row = get_nearest_drift_row(drift_df, w_utc)
+    available_weeks_utc = [
+        pd.Timestamp(w["window_end_utc"]) for w in weeks_payload
+    ]
 
-        # Zone rows for this week
-        zw_df = zone_drift_df[zone_drift_df["window_end"] == w_utc]
-        zones_data = []
-        for _, zr in zw_df.iterrows():
-            zid = int(zr["zone_id"])
-            zmeta = zones_by_id.get(zid, {})
-            zones_data.append(
-                {
-                    "zone_id": zid,
-                    "name": zmeta.get("name", f"Zone {zid}"),
-                    "borough": zmeta.get("borough", "Unknown"),
-                    "pickups_train": zmeta.get("pickups_train", 0),
-                    "state_pickups_residual": int(zr.get("state_pickups_residual", 0)),
-                    "z_pickups_residual": float(zr.get("z_pickups_residual", 0.0)),
-                    "cohens_d_pickups_residual": float(zr.get("cohens_d_pickups_residual", 0.0)),
-                    "psi_pickups_residual": float(zr.get("psi_pickups_residual", 0.0)),
-                    "persistent_alert": bool(zr.get("persistent_alert", False)),
-                }
-            )
-
-        weeks_payload.append(
-            {
-                "week_index": i,
-                "window_end_utc": w_utc.isoformat(),
-                "window_end_str": w_ny.strftime("%Y-%m-%d %H:%M EST"),
-                "label": f"Week {i + 1} ({w_ny.strftime('%b %d, %Y')})",
-                "kpi": {
-                    "max_state": int(kpi_row.get("max_state", 0)),
-                    "weighted_score": float(kpi_row.get("weighted_score", 0.0)),
-                    "persistent_alert": bool(kpi_row.get("persistent_alert", False)),
-                    "state_pickups_residual": int(kpi_row.get("state_pickups_residual", 0)),
-                    "psi_pickups_residual": float(kpi_row.get("psi_pickups_residual", 0.0)),
-                    "cohens_d_pickups_residual": float(kpi_row.get("cohens_d_pickups_residual", 0.0)),
-                    "adf_label": str(kpi_row.get("adf_label", "reverting")),
-                    "state_zone_mix": int(kpi_row.get("state_zone_mix", 0)),
-                    "psi_zone_mix": float(kpi_row.get("psi_zone_mix", 0.0)),
-                    "cohens_w_zone_mix": float(kpi_row.get("cohens_w_zone_mix", 0.0)),
-                    "state_hour_of_day_mix": int(kpi_row.get("state_hour_of_day_mix", 0)),
-                    "psi_hour_of_day_mix": float(kpi_row.get("psi_hour_of_day_mix", 0.0)),
-                    "cohens_w_hour_of_day_mix": float(kpi_row.get("cohens_w_hour_of_day_mix", 0.0)),
-                    "state_weekend_mix": int(kpi_row.get("state_weekend_mix", 0)),
-                    "psi_weekend_mix": float(kpi_row.get("psi_weekend_mix", 0.0)),
-                    "cohens_h_weekend_mix": float(kpi_row.get("cohens_h_weekend_mix", 0.0)),
-                },
-                "zones": zones_data,
-            }
-        )
-
-    # 3. Mount Custom React Component
+    # 2. Mount Custom React Component
     ctrl_state = drift_dashboard_controls(
         weeks_data=weeks_payload,
         initial_week_index=0,
@@ -205,17 +246,10 @@ def main() -> None:
     )
 
     active_week_idx = int(ctrl_state.get("weekIndex", 0))
-    if active_week_idx < 0 or active_week_idx >= len(available_weeks):
+    if active_week_idx < 0 or active_week_idx >= len(available_weeks_utc):
         active_week_idx = 0
-    active_week_utc = available_weeks[active_week_idx]
+    active_week_utc = available_weeks_utc[active_week_idx]
     active_week_ny = active_week_utc.tz_convert("America/New_York")
-
-    # Selected zone from React component or fallback
-    clicked_zone_id = ctrl_state.get("selectedZoneId")
-    if clicked_zone_id is not None and int(clicked_zone_id) in zones_by_id:
-        active_zone_id = int(clicked_zone_id)
-    else:
-        active_zone_id = default_zone_id
 
     # 4. Diagnostics Section (Ground Truth Raw Time Series)
     st.markdown(
@@ -231,58 +265,115 @@ def main() -> None:
         unsafe_allow_html=True,
     )
 
-    # Zone selection dropdown
+    # Zone filter: multiselect, default empty -- "overall" (all 20 zones, summed).
     zone_options = [z["zone_id"] for z in selected_zones_list]
     zone_labels = {
-        z["zone_id"]: f"{z['name']} ({z['borough']}) — Train: {z.get('pickups_train', 0):,} pickups"
+        z[
+            "zone_id"
+        ]: f"{z['name']} ({z['borough']}) — Train: {z.get('pickups_train', 0):,} pickups"
         for z in selected_zones_list
     }
-
-    selected_idx = zone_options.index(active_zone_id) if active_zone_id in zone_options else 0
-    chosen_zone_id = st.selectbox(
-        "Select Zone for Diagnostics:",
+    chosen_zone_ids = st.multiselect(
+        "Filter Zones (default: overall, all 20 zones summed):",
         options=zone_options,
-        index=selected_idx,
+        default=[],
         format_func=lambda zid: zone_labels.get(zid, f"Zone {zid}"),
     )
-
-    counts_by_zone = modeled_zone_counts(zone_hour_df, zone_options)
-    zone_counts = counts_by_zone[chosen_zone_id]
+    if chosen_zone_ids:
+        scope_label = (
+            ", ".join(
+                zones_by_id.get(z, {}).get("name", f"Zone {z}") for z in chosen_zone_ids
+            )
+            if len(chosen_zone_ids) <= 3
+            else f"{len(chosen_zone_ids)} Selected Zones"
+        )
+    else:
+        scope_label = "All 20 Zones (Overall)"
 
     # Periods from params.yaml
     periods = params.get("periods", {})
-    train_start = pd.Timestamp(periods.get("train", {}).get("start", "2020-01-08"), tz="America/New_York")
-    train_end = pd.Timestamp(periods.get("train", {}).get("end", "2020-02-03"), tz="America/New_York")
-    calib_start = pd.Timestamp(periods.get("calibration", {}).get("start", "2020-02-03"), tz="America/New_York")
-    calib_end = pd.Timestamp(periods.get("calibration", {}).get("end", "2020-02-17"), tz="America/New_York")
-    test_start = pd.Timestamp(periods.get("test", {}).get("start", "2020-02-17"), tz="America/New_York")
-    test_end = pd.Timestamp(periods.get("test", {}).get("end", "2020-03-01"), tz="America/New_York")
 
-    # Diagnostic 1: Raw Pickups Time Series Line Chart
+    def _period(
+        name: str, default_start: str, default_end: str
+    ) -> tuple[pd.Timestamp, pd.Timestamp]:
+        bounds = periods.get(name, {})
+        start = pd.Timestamp(bounds.get("start", default_start), tz="America/New_York")
+        end = pd.Timestamp(bounds.get("end", default_end), tz="America/New_York")
+        return start, end
+
+    train_start, train_end = _period("train", "2020-01-08", "2020-02-03")
+    calib_start, calib_end = _period("calibration", "2020-02-03", "2020-02-17")
+    test_start, test_end = _period("test", "2020-02-17", "2020-03-01")
+    replay_start, replay_end = _period("replay", "2020-03-01", "2020-05-01")
+
+    # Diagnostic 1: Raw Demand Time Series -- Daily by default, Weekly optional.
+    agg_choice = st.radio(
+        "Aggregate demand by:",
+        options=["Daily", "Weekly"],
+        index=0,
+        horizontal=True,
+    )
+    resample_freq = "D" if agg_choice == "Daily" else "W"
+    scope_hourly, agg_series, forecast_agg_series = get_scope_aggregated_series(
+        tuple(zone_options),
+        tuple(chosen_zone_ids),
+        resample_freq,
+    )
+
     fig_line = go.Figure()
-
     fig_line.add_trace(
         go.Scatter(
-            x=zone_counts.index,
-            y=zone_counts,
+            x=agg_series["hour_ny"],
+            y=agg_series["pickups"],
             mode="lines",
-            name="Hourly Pickups",
-            line={"color": KNICKS_BLUE, "width": 1.5},
-            hovertemplate="Time: %{x|%Y-%m-%d %H:%M}<br>Pickups: %{y:,}<extra></extra>",
+            name="Live Pickups",
+            line={"color": KNICKS_BLUE, "width": 1.5 if agg_choice == "Daily" else 2.5},
+            hovertemplate=f"{agg_choice} starting: "
+            + "%{x|%Y-%m-%d}<br>Live Pickups: %{y:,}<extra></extra>",
+        )
+    )
+    fig_line.add_trace(
+        go.Scatter(
+            x=forecast_agg_series["hour_ny"],
+            y=forecast_agg_series["forecasted_pickups"],
+            mode="lines",
+            name="Forecasted Pickups (HGB candidate v3)",
+            line={
+                "color": KNICKS_ORANGE,
+                "width": 1.5 if agg_choice == "Daily" else 2.5,
+                "dash": "dot",
+            },
+            hovertemplate=f"{agg_choice} starting: "
+            + "%{x|%Y-%m-%d}<br>Forecasted Pickups: %{y:,.0f}<extra></extra>",
         )
     )
 
-    # Shaded periods
+    # Shaded periods -- Replay (Mar 1 - May 1) is the real natural-drift window now that
+    # aggregate_and_split.py covers it, not just the healthy warmup/train/calibration/test.
     period_shading = [
         ("Warmup", "2020-01-01", train_start, "rgba(229, 231, 235, 0.4)"),
         ("Train Period", train_start, train_end, "rgba(0, 107, 182, 0.10)"),
         ("Calibration Period", calib_start, calib_end, "rgba(190, 192, 194, 0.20)"),
         ("Test Period", test_start, test_end, "rgba(245, 132, 38, 0.12)"),
+        (
+            "Replay Period (Natural Drift)",
+            replay_start,
+            replay_end,
+            "rgba(220, 38, 38, 0.08)",
+        ),
     ]
 
     for label, start_dt, end_dt, color in period_shading:
-        start_ts = pd.Timestamp(start_dt, tz="America/New_York") if isinstance(start_dt, str) else start_dt
-        end_ts = pd.Timestamp(end_dt, tz="America/New_York") if isinstance(end_dt, str) else end_dt
+        start_ts = (
+            pd.Timestamp(start_dt, tz="America/New_York")
+            if isinstance(start_dt, str)
+            else start_dt
+        )
+        end_ts = (
+            pd.Timestamp(end_dt, tz="America/New_York")
+            if isinstance(end_dt, str)
+            else end_dt
+        )
         fig_line.add_vrect(
             x0=start_ts,
             x1=end_ts,
@@ -307,14 +398,13 @@ def main() -> None:
         annotation_font_color="#DC2626",
     )
 
-    chosen_meta = zones_by_id.get(chosen_zone_id, {})
     fig_line.update_layout(
         title={
-            "text": f"Raw Hourly Demand: {chosen_meta.get('name', f'Zone {chosen_zone_id}')} ({chosen_meta.get('borough', '')})",
+            "text": f"Forecasted versus Live Pickups ({agg_choice}): {scope_label}",
             "font": {"size": 15, "color": KNICKS_BLUE},
         },
-        xaxis_title="Date / Time (America/New_York)",
-        yaxis_title="Pickup Volume",
+        xaxis_title="Date (America/New_York)",
+        yaxis_title=f"Pickup Volume ({agg_choice} Total)",
         template="plotly_white",
         height=380,
         margin={"l": 40, "r": 20, "t": 45, "b": 40},
@@ -327,8 +417,10 @@ def main() -> None:
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        train_means = weekday_means(zone_counts, train_start, train_end)
-        test_means = weekday_means(zone_counts, test_start, test_end)
+        # Respects the zone filter above -- defaults to the same "All 20 Zones" scope as
+        # the line chart, so this and the fixed citywide reference in col2 start identical.
+        train_means = weekday_means(scope_hourly, train_start, train_end)
+        test_means = weekday_means(scope_hourly, test_start, test_end)
 
         fig_dow = go.Figure()
         fig_dow.add_trace(
@@ -352,7 +444,7 @@ def main() -> None:
 
         fig_dow.update_layout(
             title={
-                "text": f"Day-of-Week Diurnal Shift: {chosen_meta.get('name', f'Zone {chosen_zone_id}')}",
+                "text": f"Day-of-Week Diurnal Shift: {scope_label}",
                 "font": {"size": 14, "color": KNICKS_BLUE},
             },
             barmode="group",
@@ -361,49 +453,24 @@ def main() -> None:
             template="plotly_white",
             height=340,
             margin={"l": 40, "r": 20, "t": 45, "b": 40},
-            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+            legend={
+                "orientation": "h",
+                "yanchor": "bottom",
+                "y": 1.02,
+                "xanchor": "right",
+                "x": 1,
+            },
         )
         st.plotly_chart(fig_dow, use_container_width=True)
         show_missing_weekdays(train_means, test_means)
 
     with col2:
-        # A modeled-area total needs an observed count from every selected zone.
-        city_hourly = counts_by_zone.sum(axis=1, min_count=len(zone_options))
-        city_train_means = weekday_means(city_hourly, train_start, train_end)
-        city_test_means = weekday_means(city_hourly, test_start, test_end)
-
-        fig_city = go.Figure()
-        fig_city.add_trace(
-            go.Bar(
-                x=city_train_means.index,
-                y=city_train_means,
-                name="Train Period",
-                marker_color=KNICKS_BLUE,
-                hovertemplate="%{x}<br>Citywide Train Mean: %{y:,.0f} pickups/hr<extra></extra>",
-            )
-        )
-        fig_city.add_trace(
-            go.Bar(
-                x=city_test_means.index,
-                y=city_test_means,
-                name="Test Period",
-                marker_color=KNICKS_ORANGE,
-                hovertemplate="%{x}<br>Citywide Test Mean: %{y:,.0f} pickups/hr<extra></extra>",
-            )
-        )
-
-        fig_city.update_layout(
-            title={
-                "text": f"Average hourly pickups by weekday ({len(zone_options)} modeled zones)",
-                "font": {"size": 14, "color": KNICKS_BLUE},
-            },
-            barmode="group",
-            xaxis_title="Day of Week (Local NY Time)",
-            yaxis_title="Citywide Avg Pickups / Hour",
-            template="plotly_white",
-            height=340,
-            margin={"l": 40, "r": 20, "t": 45, "b": 40},
-            legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+        fig_city, city_train_means, city_test_means = get_citywide_dow_figure(
+            tuple(zone_options),
+            train_start.isoformat(),
+            train_end.isoformat(),
+            test_start.isoformat(),
+            test_end.isoformat(),
         )
         st.plotly_chart(fig_city, use_container_width=True)
         show_missing_weekdays(city_train_means, city_test_means)

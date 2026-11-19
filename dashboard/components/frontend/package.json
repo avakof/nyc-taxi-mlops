@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "esbuild src/index.jsx --bundle --outfile=../dist/bundle.js --jsx=automatic"
+    "build": "esbuild src/index.jsx --bundle --minify --outfile=../dist/bundle.js --jsx=automatic"
   },
   "keywords": [],
   "author": "",

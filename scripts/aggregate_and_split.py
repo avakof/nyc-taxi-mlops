@@ -1,5 +1,8 @@
 """Aggregate raw trips to zone-hour pickup counts, then split by target-hour timestamp
-into train/calibration/test. Time-based split only -- this is time series, never random.
+into train/calibration/test/replay. Time-based split only -- this is time series, never
+random. Covers warmup through the end of `replay` (params.yaml) -- the natural-drift
+window (Mar 1 - May 1 2020) needs real aggregated history, not just the healthy test
+period, for ADR-0009's drift detector to ever see an actual demand collapse.
 
 Usage:
     uv run python scripts/aggregate_and_split.py
@@ -26,12 +29,12 @@ PLACEHOLDER_ZONES = {264, 265}
 def needed_months(params: dict) -> list[str]:
     periods = params["periods"]
     start = pd.Timestamp(periods["warmup"]["start"])
-    end = pd.Timestamp(periods["test"]["end"]) - pd.Timedelta(days=1)
+    end = pd.Timestamp(periods["replay"]["end"]) - pd.Timedelta(days=1)
     return [str(p) for p in pd.period_range(start, end, freq="M")]
 
 
 def clean_trips(
-    trips: pd.DataFrame, warmup_start_utc: pd.Timestamp, test_end_utc: pd.Timestamp
+    trips: pd.DataFrame, warmup_start_utc: pd.Timestamp, window_end_utc: pd.Timestamp
 ) -> pd.DataFrame:
     """Pure quarantine step: drop placeholder zones, DST-invalid timestamps, and rows outside
     the covered window. trips needs columns tpep_pickup_datetime (naive, NYC local wall time
@@ -54,7 +57,7 @@ def clean_trips(
     # Quarantine rows whose pickup time falls outside the covered window -- TLC files contain
     # a small number of data-entry errors (timestamps years off), found during EDA.
     hour_utc = trips.pickup_utc.dt.floor("h")
-    in_window = (hour_utc >= warmup_start_utc) & (hour_utc < test_end_utc)
+    in_window = (hour_utc >= warmup_start_utc) & (hour_utc < window_end_utc)
     out_of_range = int((~in_window).sum())
     trips = trips.loc[in_window].assign(hour_utc=hour_utc[in_window])
 
@@ -69,7 +72,7 @@ def load_raw_pickups(params: dict) -> pd.DataFrame:
     taxi_type = params["data"]["taxi_type"]
     periods = params["periods"]
     warmup_start_utc = pd.Timestamp(periods["warmup"]["start"], tz=NY).tz_convert("UTC")
-    test_end_utc = pd.Timestamp(periods["test"]["end"], tz=NY).tz_convert("UTC")
+    replay_end_utc = pd.Timestamp(periods["replay"]["end"], tz=NY).tz_convert("UTC")
 
     frames = [
         pd.read_parquet(
@@ -79,18 +82,18 @@ def load_raw_pickups(params: dict) -> pd.DataFrame:
         for month in needed_months(params)
     ]
     trips = pd.concat(frames, ignore_index=True)
-    return clean_trips(trips, warmup_start_utc, test_end_utc)
+    return clean_trips(trips, warmup_start_utc, replay_end_utc)
 
 
 def to_zone_hour_counts(trips: pd.DataFrame, params: dict) -> pd.DataFrame:
     periods = params["periods"]
     warmup_start_utc = pd.Timestamp(periods["warmup"]["start"], tz=NY).tz_convert("UTC")
-    test_end_utc = pd.Timestamp(periods["test"]["end"], tz=NY).tz_convert("UTC")
+    replay_end_utc = pd.Timestamp(periods["replay"]["end"], tz=NY).tz_convert("UTC")
 
     zones = pd.read_csv(ROOT / "data" / "external" / "taxi_zone_lookup.csv")
     zone_ids = sorted(set(zones.LocationID) - PLACEHOLDER_ZONES)
     all_hours = pd.date_range(
-        warmup_start_utc, test_end_utc, freq="h", inclusive="left"
+        warmup_start_utc, replay_end_utc, freq="h", inclusive="left"
     )
 
     counts = trips.groupby(["PULocationID", "hour_utc"]).size()
@@ -103,7 +106,7 @@ def to_zone_hour_counts(trips: pd.DataFrame, params: dict) -> pd.DataFrame:
 
 def split_by_period(zone_hour: pd.DataFrame, params: dict) -> dict[str, pd.DataFrame]:
     out = {}
-    for name in ("train", "calibration", "test"):
+    for name in ("train", "calibration", "test", "replay"):
         start = pd.Timestamp(params["periods"][name]["start"], tz=NY).tz_convert("UTC")
         end = pd.Timestamp(params["periods"][name]["end"], tz=NY).tz_convert("UTC")
         mask = (zone_hour.hour_utc >= start) & (zone_hour.hour_utc < end)
@@ -121,7 +124,7 @@ def main() -> None:
     print(
         f"wrote canonical aggregate: {len(zone_hour)} rows "
         f"({zone_hour.zone_id.nunique()} zones x {zone_hour.hour_utc.nunique()} hours), "
-        "covers warmup through test (needed as lag history for early train rows)"
+        "covers warmup through replay"
     )
 
     for name, df in split_by_period(zone_hour, params).items():
